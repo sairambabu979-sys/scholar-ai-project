@@ -57,9 +57,8 @@ meaningfully verified by driving data through them end to end.
 - [x] API v1 subset with `{data, requestId}` envelope, origin-based CSRF check, rate limits
 - [x] Health endpoint (DB + worker heartbeat, no user data)
 - [x] Provider access checklist with Canvas availability explicitly recorded
-- [~] CI workflow (format, lint, type-check, unit, integration, e2e, build) — written but
-  **not yet run on GitHub**: it triggers on pull requests and pushes to `main`, and the
-  repository has no `main` branch yet
+- [~] CI workflow (format, lint, type-check, unit, integration, e2e, build) — written; first
+  GitHub run is on the Phase 1 pull request against `main`; mark done only once it is green
 
 ### M0 completion gate
 
