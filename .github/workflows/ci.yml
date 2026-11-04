@@ -26,7 +26,8 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 20
     env:
       CI: "true"
-      NODE_ENV: development
+      # NODE_ENV is deliberately not set job-wide: `next build` must run as production, and
+      # forcing development makes prerendering fail. Vitest and the e2e servers set their own.
       INTEGRATIONS_MODE: mock
       DATABASE_URL: postgresql://scholar:local-development-only@localhost:5432/scholar_test
       TEST_DATABASE_URL: postgresql://scholar:local-development-only@localhost:5432/scholar_test
