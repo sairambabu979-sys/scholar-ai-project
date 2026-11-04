@@ -1,0 +1,19 @@
+{
+  "name": "@scholar/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/main.ts",
+    "start": "tsx src/main.ts",
+    "type-check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scholar/config": "*",
+    "@scholar/db": "*",
+    "@scholar/domain": "*",
+    "@scholar/integrations": "*",
+    "@scholar/security": "*",
+    "@scholar/testing": "*"
+  }
+}

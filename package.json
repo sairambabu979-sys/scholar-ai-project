@@ -1,0 +1,46 @@
+{
+  "name": "scholar-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Scholar AI — approval-first academic assistant (Google Tasks + Canvas context).",
+  "engines": {
+    "node": ">=22.12.0 <23 || >=24.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @scholar/web",
+    "start": "npm run start -w @scholar/web",
+    "worker:dev": "npm run dev -w @scholar/worker",
+    "worker:start": "npm run start -w @scholar/worker",
+    "db:generate": "npm run generate -w @scholar/db",
+    "db:migrate": "npm run migrate:dev -w @scholar/db",
+    "db:migrate:deploy": "npm run migrate:deploy -w @scholar/db",
+    "db:seed:demo": "npm run seed:demo -w @scholar/db",
+    "postinstall": "npm run db:generate",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type-check": "npm run type-check --workspaces --if-present && tsc -p tsconfig.tests.json",
+    "test": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "playwright test",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.20.5",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.5",
+    "globals": "17.14.0",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.1.0"
+  }
+}

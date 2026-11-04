@@ -1,0 +1,10 @@
+node_modules
+.next
+dist
+coverage
+playwright-report
+test-results
+packages/db/src/generated
+packages/db/prisma/migrations
+package-lock.json
+SCHOLAR_AI_PLAN.md

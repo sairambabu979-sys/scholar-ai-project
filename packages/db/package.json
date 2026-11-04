@@ -1,0 +1,29 @@
+{
+  "name": "@scholar/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate:dev": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "seed:demo": "tsx src/seed-demo.ts",
+    "type-check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "@scholar/config": "*",
+    "better-auth": "1.7.17",
+    "pg": "8.23.1",
+    "@scholar/domain": "*",
+    "@scholar/security": "*"
+  },
+  "devDependencies": {
+    "prisma": "7.10.1",
+    "@types/pg": "8.23.1"
+  }
+}

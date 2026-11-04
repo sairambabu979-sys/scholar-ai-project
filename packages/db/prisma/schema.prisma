@@ -1,0 +1,360 @@
+// Scholar AI database schema (Phase 1 / milestone M0 + first vertical slice).
+//
+// Conventions (SCHOLAR_AI_PLAN.md §7):
+//  - UUID internal identifiers; provider identifiers stay strings.
+//  - Every owned table carries user_id. Child tables reference parents through composite
+//    (user_id, id) foreign keys, so a row can never point at another user's parent row.
+//  - Timestamps are UTC timestamptz. Google Tasks due values are SQL `date` (date-only).
+//  - Tables for later milestones (tokens, Canvas, proposals, approvals, AI) arrive with the
+//    milestone that uses them, each in its own migration.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------------------
+// Identity (Better Auth core schema; field names must match the auth library)
+// ---------------------------------------------------------------------------------------
+
+model User {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                String
+  email               String    @unique
+  emailVerified       Boolean   @default(false) @map("email_verified")
+  image               String?
+  timezone            String?   @default("UTC")
+  deletionRequestedAt DateTime? @map("deletion_requested_at") @db.Timestamptz(3)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions     Session[]
+  accounts     Account[]
+  preference   Preference?
+  integrations Integration[]
+  jobs         Job[]
+  auditEvents  AuditEvent[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  token     String   @unique
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Sign-in identities only (Google OpenID / mock demo password). Integration grants such as
+/// Google Tasks are stored separately (Phase 2: token_envelopes), never here.
+model Account {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  accountId             String    @map("account_id")
+  providerId            String    @map("provider_id")
+  accessToken           String?   @map("access_token")
+  refreshToken          String?   @map("refresh_token")
+  idToken               String?   @map("id_token")
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at") @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("auth_accounts")
+}
+
+model Verification {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+// ---------------------------------------------------------------------------------------
+// Preferences
+// ---------------------------------------------------------------------------------------
+
+model Preference {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String    @unique @map("user_id") @db.Uuid
+  syncEnabled           Boolean   @default(true) @map("sync_enabled")
+  /// Weekly study availability (Phase 5 consumes it). Shape validated in application code.
+  studyAvailability     Json?     @map("study_availability")
+  aiDataUseNoticeVersion String?  @map("ai_data_use_notice_version")
+  aiDataUseConsent      Boolean?  @map("ai_data_use_consent")
+  aiDataUseDecidedAt    DateTime? @map("ai_data_use_decided_at") @db.Timestamptz(3)
+  aiDailyLimitUsd       Decimal?  @map("ai_daily_limit_usd") @db.Decimal(10, 2)
+  onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz(3)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("preferences")
+}
+
+// ---------------------------------------------------------------------------------------
+// Integrations and synchronization
+// ---------------------------------------------------------------------------------------
+
+enum IntegrationProvider {
+  google_tasks
+  canvas
+}
+
+/// `mock` integrations read synthetic fixtures only and are labelled as such everywhere.
+enum IntegrationMode {
+  mock
+  live
+}
+
+enum IntegrationStatus {
+  active
+  needs_reconnect
+  disconnected
+}
+
+model Integration {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String              @map("user_id") @db.Uuid
+  provider          IntegrationProvider
+  mode              IntegrationMode
+  status            IntegrationStatus   @default(active)
+  externalAccountId String              @map("external_account_id")
+  /// Approved HTTPS origin (Canvas). Null for Google.
+  baseUrl           String?             @map("base_url")
+  scopes            String[]            @default([])
+  /// Non-secret adapter settings (e.g. mock fixture anchor date). Never tokens.
+  config            Json?
+  lastAttemptAt     DateTime?           @map("last_attempt_at") @db.Timestamptz(3)
+  lastSuccessAt     DateTime?           @map("last_success_at") @db.Timestamptz(3)
+  lastErrorCode     String?             @map("last_error_code")
+  lastErrorAt       DateTime?           @map("last_error_at") @db.Timestamptz(3)
+  connectedAt       DateTime            @default(now()) @map("connected_at") @db.Timestamptz(3)
+  disconnectedAt    DateTime?           @map("disconnected_at") @db.Timestamptz(3)
+  createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskLists   TaskList[]
+  tasks       Task[]
+  syncRuns    SyncRun[]
+  syncCursors SyncCursor[]
+
+  @@unique([userId, id])
+  @@unique([userId, provider, externalAccountId])
+  @@index([status, provider, lastAttemptAt])
+  @@map("integrations")
+}
+
+model TaskList {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  integrationId     String    @map("integration_id") @db.Uuid
+  externalId        String    @map("external_id")
+  title             String
+  /// Application-level restriction: Google offers no per-list OAuth permission.
+  selected          Boolean   @default(false)
+  /// False once a complete list scan no longer returns this list.
+  available         Boolean   @default(true)
+  providerUpdatedAt DateTime? @map("provider_updated_at") @db.Timestamptz(3)
+  etag              String?
+  lastSeenAt        DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  integration Integration @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
+  tasks       Task[]
+
+  @@unique([integrationId, externalId])
+  @@unique([userId, id])
+  @@index([userId, selected])
+  @@map("task_lists")
+}
+
+enum TaskStatus {
+  needs_action
+  completed
+}
+
+model Task {
+  id                String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String     @map("user_id") @db.Uuid
+  integrationId     String     @map("integration_id") @db.Uuid
+  taskListId        String     @map("task_list_id") @db.Uuid
+  externalId        String     @map("external_id")
+  title             String
+  notes             String?
+  parentExternalId  String?    @map("parent_external_id")
+  position          String?
+  status            TaskStatus
+  /// Google Tasks `due` is a date, not an instant. Stored as SQL date; never timezone-shifted.
+  dueDate           DateTime?  @map("due_date") @db.Date
+  completedAt       DateTime?  @map("completed_at") @db.Timestamptz(3)
+  hidden            Boolean    @default(false)
+  deleted           Boolean    @default(false)
+  webViewLink       String?    @map("web_view_link")
+  providerUpdatedAt DateTime?  @map("provider_updated_at") @db.Timestamptz(3)
+  etag              String?
+  /// Hash of the normalized provider fields; unchanged hash means no write.
+  versionHash       String     @map("version_hash")
+  syncedAt          DateTime   @map("synced_at") @db.Timestamptz(3)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  integration Integration @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
+  taskList    TaskList    @relation(fields: [userId, taskListId], references: [userId, id], onDelete: Cascade)
+
+  @@unique([integrationId, externalId])
+  @@unique([userId, id])
+  @@index([userId, status, dueDate])
+  @@index([taskListId])
+  @@map("tasks")
+}
+
+enum SyncRunStatus {
+  running
+  succeeded
+  failed
+  cancelled
+}
+
+model SyncRun {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String        @map("user_id") @db.Uuid
+  integrationId  String        @map("integration_id") @db.Uuid
+  jobId          String?       @map("job_id") @db.Uuid
+  trigger        String
+  status         SyncRunStatus @default(running)
+  startedAt      DateTime      @map("started_at") @db.Timestamptz(3)
+  finishedAt     DateTime?     @map("finished_at") @db.Timestamptz(3)
+  pagesFetched   Int           @default(0) @map("pages_fetched")
+  listsSeen      Int           @default(0) @map("lists_seen")
+  tasksFetched   Int           @default(0) @map("tasks_fetched")
+  tasksUpserted  Int           @default(0) @map("tasks_upserted")
+  tasksUnchanged Int           @default(0) @map("tasks_unchanged")
+  tasksDeleted   Int           @default(0) @map("tasks_deleted")
+  safeErrorCode  String?       @map("safe_error_code")
+
+  integration Integration @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
+
+  @@index([integrationId, startedAt])
+  @@map("sync_runs")
+}
+
+model SyncCursor {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                   String    @map("user_id") @db.Uuid
+  integrationId            String    @map("integration_id") @db.Uuid
+  resourceKind             String    @map("resource_kind")
+  resourceId               String    @map("resource_id")
+  /// Highest provider `updated` timestamp committed for this stream.
+  watermark                DateTime? @db.Timestamptz(3)
+  lastFullReconciliationAt DateTime? @map("last_full_reconciliation_at") @db.Timestamptz(3)
+  updatedAt                DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  integration Integration @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
+
+  @@unique([integrationId, resourceKind, resourceId])
+  @@map("sync_cursors")
+}
+
+// ---------------------------------------------------------------------------------------
+// Durable job queue
+// ---------------------------------------------------------------------------------------
+
+enum JobStatus {
+  queued
+  running
+  succeeded
+  failed
+  cancelled
+}
+
+model Job {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  kind            String
+  /// Set while queued/running; released (NULL) on completion so a new job can be queued.
+  /// Uniqueness gives "one active job per key" without unbounded duplicates.
+  dedupeKey       String?   @unique @map("dedupe_key")
+  /// Original dedupe key kept for diagnostics after release.
+  dedupeKeyOrigin String?   @map("dedupe_key_origin")
+  /// Bounded references only (IDs, trigger). Never tokens or coursework.
+  payload         Json      @default("{}")
+  status          JobStatus @default(queued)
+  attempts        Int       @default(0)
+  maxAttempts     Int       @default(5) @map("max_attempts")
+  runAt           DateTime  @default(now()) @map("run_at") @db.Timestamptz(3)
+  lockedBy        String?   @map("locked_by")
+  leaseExpiresAt  DateTime? @map("lease_expires_at") @db.Timestamptz(3)
+  cancelRequested Boolean   @default(false) @map("cancel_requested")
+  lastErrorCode   String?   @map("last_error_code")
+  result          Json?
+  startedAt       DateTime? @map("started_at") @db.Timestamptz(3)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAt])
+  @@index([status, leaseExpiresAt])
+  @@index([userId, createdAt])
+  @@map("jobs")
+}
+
+model WorkerHeartbeat {
+  workerId   String   @id @map("worker_id")
+  startedAt  DateTime @map("started_at") @db.Timestamptz(3)
+  lastSeenAt DateTime @map("last_seen_at") @db.Timestamptz(3)
+  version    String?
+
+  @@map("worker_heartbeats")
+}
+
+// ---------------------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------------------
+
+/// Sanitized personal action history. Never tokens or assignment/task bodies.
+model AuditEvent {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  actor      String
+  action     String
+  targetType String?  @map("target_type")
+  targetId   String?  @map("target_id")
+  metadata   Json?
+  requestId  String?  @map("request_id")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("audit_events")
+}

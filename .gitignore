@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# build output
+.next/
+dist/
+out/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# generated Prisma client
+packages/db/src/generated/
+
+# environment and secrets — never commit real values
+.env
+.env.*
+!.env.example
+
+# test output
+playwright-report/
+test-results/
+blob-report/
+
+# logs, token exports, real coursework
+*.log
+logs/
+*.tokens.json
+token-export*
+coursework/
+real-data/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+tests/e2e/.auth/
