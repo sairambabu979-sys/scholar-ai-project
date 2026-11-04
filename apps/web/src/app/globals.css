@@ -1,0 +1,240 @@
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1d1f;
+  --muted: #5b5f66;
+  --border: #d9dbde;
+  --accent: #2357c6;
+  --accent-text: #ffffff;
+  --danger: #b42318;
+  --warn-bg: #fff4d6;
+  --warn-text: #6b4a00;
+  --mock-bg: #3b1f6e;
+  --mock-text: #ffffff;
+  --ok: #157f3b;
+  --focus: #f0a400;
+  --radius: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141517;
+    --surface: #1d1f22;
+    --text: #ececec;
+    --muted: #a5a9b0;
+    --border: #34373c;
+    --accent: #7aa2ff;
+    --accent-text: #0b1530;
+    --danger: #ff8a80;
+    --warn-bg: #3a2f10;
+    --warn-text: #ffd98a;
+    --mock-bg: #4b2a8a;
+    --ok: #6fd391;
+    color-scheme: dark;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
+}
+a {
+  color: var(--accent);
+}
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.skip-link {
+  position: absolute;
+  left: -9999px;
+}
+.skip-link:focus {
+  left: 16px;
+  top: 8px;
+  background: var(--surface);
+  padding: 8px;
+  z-index: 10;
+}
+.mock-banner {
+  background: var(--mock-bg);
+  color: var(--mock-text);
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  text-align: center;
+}
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.site-header nav {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.brand {
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--text);
+}
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+h1 {
+  font-size: 1.6rem;
+  margin: 0 0 16px;
+}
+h2 {
+  font-size: 1.15rem;
+  margin: 0 0 12px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.muted {
+  color: var(--muted);
+}
+.small {
+  font-size: 0.875rem;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.stack > * + * {
+  margin-top: 12px;
+}
+button,
+.button {
+  font: inherit;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  padding: 8px 14px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+button.secondary,
+.button.secondary {
+  background: transparent;
+  color: var(--accent);
+}
+button.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+input,
+select {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  max-width: 100%;
+}
+label {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+}
+.field {
+  margin-bottom: 12px;
+}
+.checkbox {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 400;
+}
+.notice {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.error {
+  color: var(--danger);
+}
+.ok {
+  color: var(--ok);
+}
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.badge.mock {
+  border-color: var(--mock-bg);
+  color: var(--mock-text);
+  background: var(--mock-bg);
+}
+.task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.task-list li {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.task-list li:first-child {
+  border-top: none;
+}
+.task-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.task-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+}
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+.steps {
+  padding-left: 20px;
+}

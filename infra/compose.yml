@@ -1,0 +1,21 @@
+# Local development database only. Not a production deployment definition.
+name: scholar-ai
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scholar
+      POSTGRES_PASSWORD: local-development-only
+      POSTGRES_DB: scholar
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - scholar-db:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scholar -d scholar"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  scholar-db:

@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scholar
+          POSTGRES_PASSWORD: local-development-only
+          POSTGRES_DB: scholar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scholar -d scholar_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      CI: "true"
+      # NODE_ENV is deliberately not set job-wide: `next build` must run as production, and
+      # forcing development makes prerendering fail. Vitest and the e2e servers set their own.
+      INTEGRATIONS_MODE: mock
+      DATABASE_URL: postgresql://scholar:local-development-only@localhost:5432/scholar_test
+      TEST_DATABASE_URL: postgresql://scholar:local-development-only@localhost:5432/scholar_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npm test
+      - run: npm run test:integration
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
