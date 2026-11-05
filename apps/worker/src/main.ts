@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadEnvFiles } from "@scholar/config/load-env";
 import { ConfigError, getEnv } from "@scholar/config";
 import { createPrismaClient } from "@scholar/db";
+import { googleTasksOAuthFromEnv, keyringFromEnv } from "@scholar/services";
 import { systemClock } from "@scholar/domain";
 import { createLogger } from "@scholar/security";
 import { createGoogleTasksClientFactory } from "./client-factory.ts";
@@ -30,7 +31,16 @@ try {
 const workerId = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
 const db = createPrismaClient(env.databaseUrl);
 const clock = systemClock;
-const clientFor = createGoogleTasksClientFactory({ integrationsMode: env.integrationsMode, clock });
+const keyring = keyringFromEnv(env);
+const oauth = googleTasksOAuthFromEnv(env);
+const clientFor = createGoogleTasksClientFactory({
+  integrationsMode: env.integrationsMode,
+  clock,
+  live:
+    env.integrationsMode === "live" && keyring && oauth
+      ? { db, keyring, fetch: (url, init) => fetch(url, init), oauth }
+      : undefined,
+});
 const startedAt = clock.now();
 
 let stopping = false;
@@ -96,6 +106,15 @@ if (env.integrationsMode === "mock") {
 
 every(10_000, heartbeat, "heartbeat");
 every(30_000, () => recoverLeases({ db, clock, logger }), "lease_recovery");
+// Expired OAuth transactions are useless and hold sealed PKCE verifiers; drop them.
+every(
+  10 * 60_000,
+  () =>
+    db.oAuthState.deleteMany({
+      where: { expiresAt: { lt: new Date(clock.now().getTime() - 60 * 60_000) } },
+    }),
+  "oauth_state_cleanup",
+);
 every(
   60_000,
   () => scheduleDueSyncs({ db, clock, logger, intervalSeconds: env.syncIntervalSeconds }),

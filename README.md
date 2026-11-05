@@ -7,20 +7,22 @@ change requires the student's explicit approval.
 **Source of truth:** [`SCHOLAR_AI_PLAN.md`](SCHOLAR_AI_PLAN.md).
 **Progress and gates:** [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
-## Current status — Phase 1 (M0 + first vertical slice), mock mode only
+## Current status
 
-What works today, against **synthetic fixtures**:
+**Phase 1 (mock mode)** — demo sign-in → timezone → connect the _mock_ Google Tasks adapter →
+choose lists → background worker imports tasks → dashboard (overdue / today / next 7 days /
+later / no date / completed) with sync freshness, manual sync and disconnect. Durable Postgres
+job queue and worker. Strict configuration validation.
 
-- Demo sign-in → timezone → connect the _mock_ Google Tasks adapter → choose lists → background
-  worker imports tasks → dashboard (overdue / today / next 7 days / later / no date / completed)
-  with sync freshness, manual sync, disconnect (optionally deleting imported data).
-- Durable PostgreSQL job queue and worker with scheduling, leases, retries and fencing.
-- Strict configuration validation: production refuses mock mode, weak/missing secrets, local
-  credentials, and enabling external writes.
+**Phase 2 (live Google Tasks, read-only)** — implemented and tested against a fake Google, but
+**not yet verified with a real Google account**. With `INTEGRATIONS_MODE=live`, students sign in
+with Google (identity scopes only) and separately connect Google Tasks with the read-only
+scope. Tokens are stored with envelope encryption, refreshed with one refresh per connection,
+and erased + revoked on disconnect. To run it yourself, follow
+[`docs/GOOGLE_SMOKE_TEST.md`](docs/GOOGLE_SMOKE_TEST.md).
 
-What does **not** exist yet (and is not faked): real Google Tasks OAuth, Canvas, AI assistance,
-approvals, study tools, task completion, export/deletion, deployment. Live mode returns
-"capability unavailable" for these rather than falling back to fixtures. See
+Not built yet (and never faked): Canvas, AI assistance, approvals, study tools, task
+completion, export/deletion, deployment. See
 [`docs/PROVIDER_ACCESS.md`](docs/PROVIDER_ACCESS.md) for the external prerequisites.
 
 ## Quick start (local, mock mode)
@@ -78,8 +80,9 @@ packages/config/          Environment loading and validation
 packages/db/              Prisma schema, migrations, queue, owner-scoped repositories, seed
 packages/domain/          Pure logic: date-only handling, dashboard buckets, sync policy
 packages/integrations/    Provider interfaces, response schemas, error classification
-packages/security/        Redaction and safe structured logging
-packages/testing/         Synthetic fixtures, labelled mock Google Tasks client, test clock
+packages/security/        Redaction, safe logging, token envelope encryption
+packages/services/        Google connection lifecycle + token refresh (web and worker)
+packages/testing/         Synthetic fixtures, mock Google Tasks client, fake Google endpoints, test clock
 tests/                    unit / integration / e2e suites
 infra/                    Local PostgreSQL compose definition
 docs/                     Plan tracker, provider access, stack versions
@@ -94,5 +97,7 @@ docs/                     Plan tracker, provider access, stack versions
 - Task notes and titles are untrusted content: bounded, stored as text, rendered escaped.
 - Logs are structured and redacted (tokens, keys, DB passwords, OAuth codes; academic content
   omitted by default).
-- Sign-in requests only OpenID scopes; the Google Tasks grant will be separate (Phase 2).
+- Sign-in requests only OpenID scopes; the Google Tasks grant is separate and read-only.
+- Integration tokens are sealed (AES-256-GCM envelope, key ID, AAD bound to the owner), never
+  returned by any API, refreshed under a per-connection lock, and erased on disconnect.
 - Nothing is deployed publicly without the owner's approval.

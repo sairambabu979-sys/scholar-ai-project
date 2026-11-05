@@ -109,6 +109,8 @@ test("disconnect stops syncing and can delete imported data (A26)", async ({
   await bob.getByRole("button", { name: "Disconnect…" }).click();
   await bob.getByLabel("Also delete imported tasks and lists from Scholar AI").check();
   await bob.getByRole("button", { name: "Confirm disconnect" }).click();
+  // The outcome survives the re-render: mock connections have nothing to revoke at Google.
+  await expect(bob.getByTestId("disconnect-notice")).toContainText("Mock connection");
   await expect(bob.getByRole("button", { name: /Connect mock Google Tasks/ })).toBeVisible();
   expect((await (await bob.request.get("/api/v1/tasks?limit=100")).json()).data.items).toEqual([]);
   const integrations = (await (await bob.request.get("/api/v1/integrations")).json()).data;

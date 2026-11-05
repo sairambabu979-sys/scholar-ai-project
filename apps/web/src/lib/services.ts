@@ -7,10 +7,22 @@ import {
   recordAudit,
   syncDedupeKey,
 } from "@scholar/db";
-import { todayInTimeZone } from "@scholar/domain";
+import { systemClock, todayInTimeZone } from "@scholar/domain";
+import {
+  disconnectIntegrationWithRevocation,
+  googleTasksOAuthFromEnv,
+  keyringFromEnv,
+  startGoogleTasksConnection,
+  type GoogleConnectionDeps,
+  type ReturnPath,
+} from "@scholar/services";
+import { createLogger } from "@scholar/security";
 import { ApiError, notFound } from "./api";
 import { db } from "./db";
 import { serverEnv } from "./server-env";
+import type { SessionUser } from "./session";
+
+const logger = createLogger({ service: "web" });
 
 /** Queue a sync for an owned, active integration. Deduplicated per integration. */
 export async function requestSync(
@@ -44,17 +56,71 @@ export async function requestSync(
   return job;
 }
 
-export async function connectGoogleTasks(userId: string, timezone: string, requestId?: string) {
+/** Live Google connection dependencies, or null when live mode is not fully configured. */
+export function googleConnectionDeps(): GoogleConnectionDeps | null {
   const env = serverEnv();
-  if (env.integrationsMode !== "mock") {
-    // Phase 2 (M1) implements the real read-only OAuth flow. Never fall back to fixtures.
+  const keyring = keyringFromEnv(env);
+  const oauth = googleTasksOAuthFromEnv(env);
+  if (env.integrationsMode !== "live" || !keyring || !oauth) return null;
+  return {
+    db: db(),
+    keyring,
+    oauth,
+    fetch: (url, init) => fetch(url, init),
+    clock: systemClock,
+    appOrigin: env.appOrigin,
+    logger,
+  };
+}
+
+export type ConnectResult =
+  | { kind: "connected"; integrationId: string; jobId: string; mode: "mock" }
+  | { kind: "redirect"; authorizationUrl: string };
+
+export async function connectGoogleTasks(
+  user: SessionUser,
+  timezone: string,
+  returnPath: ReturnPath,
+  requestId?: string,
+): Promise<ConnectResult> {
+  const env = serverEnv();
+  if (env.integrationsMode === "mock") {
+    const anchor = todayInTimeZone(new Date(), timezone);
+    const integration = await connectMockGoogleTasks(db(), user.id, anchor, requestId);
+    const job = await requestSync(user.id, integration.id, "initial", requestId);
+    return { kind: "connected", integrationId: integration.id, jobId: job.id, mode: "mock" };
+  }
+  const deps = googleConnectionDeps();
+  if (!deps) {
+    // Never fall back to fixtures when the live connection cannot be made.
     throw new ApiError(
       "capability_unavailable",
-      "Live Google Tasks connection is not implemented yet (Phase 2)",
+      "Google Tasks connection is not configured on this server",
     );
   }
-  const anchor = todayInTimeZone(new Date(), timezone);
-  const integration = await connectMockGoogleTasks(db(), userId, anchor, requestId);
-  const job = await requestSync(userId, integration.id, "initial", requestId);
-  return { integration, jobId: job.id };
+  const { authorizationUrl } = await startGoogleTasksConnection(deps, {
+    userId: user.id,
+    sessionId: user.sessionId,
+    returnPath,
+    requestId,
+  });
+  return { kind: "redirect", authorizationUrl };
+}
+
+export async function disconnect(
+  userId: string,
+  integrationId: string,
+  deleteCachedData: boolean,
+  requestId?: string,
+) {
+  const env = serverEnv();
+  return disconnectIntegrationWithRevocation(
+    {
+      db: db(),
+      keyring: keyringFromEnv(env),
+      fetch: (url, init) => fetch(url, init),
+      clock: systemClock,
+    },
+    { userId, integrationId, deleteCachedData, requestId },
+  );
 }

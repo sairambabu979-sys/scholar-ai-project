@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  disconnectIntegration,
   enqueueJob,
   getOwnedIntegration,
   getOwnedJob,
@@ -23,6 +22,7 @@ import {
   resetDatabase,
   silentLogger,
   testDb,
+  disconnect,
 } from "../support/db-helpers.ts";
 
 const db = testDb();
@@ -87,12 +87,7 @@ describe("two-user isolation (A01)", () => {
   });
 
   it("cannot mutate another user's integration or list selection", async () => {
-    expect(
-      await disconnectIntegration(db, bob.id, aliceIntegration.id, {
-        deleteCachedData: true,
-        now: new Date(),
-      }),
-    ).toBeNull();
+    expect(await disconnect(db, bob.id, aliceIntegration.id, true, new Date())).toBeNull();
     expect(await setSelectedLists(db, bob.id, aliceIntegration.id, [aliceListId])).toEqual({
       ok: false,
       reason: "not_found",

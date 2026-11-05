@@ -6,7 +6,6 @@
 import { dbDateToDateOnly, type DateOnly } from "@scholar/domain";
 import type { Db } from "./client.ts";
 import type { Prisma } from "./generated/prisma/client.ts";
-import { cancelJobsForIntegration } from "./queue.ts";
 import { recordAudit } from "./audit.ts";
 
 export const GOOGLE_TASKS_SYNC_JOB = "google_tasks.sync";
@@ -139,44 +138,6 @@ export async function connectMockGoogleTasks(
       requestId,
     });
     return integration;
-  });
-}
-
-export async function disconnectIntegration(
-  db: Db,
-  userId: string,
-  integrationId: string,
-  opts: { deleteCachedData: boolean; now: Date; requestId?: string },
-) {
-  return db.$transaction(async (tx) => {
-    const integration = await tx.integration.findFirst({
-      where: { id: integrationId, userId },
-      select: { id: true, provider: true, mode: true },
-    });
-    if (!integration) return null;
-    await tx.integration.update({
-      where: { id: integration.id },
-      data: { status: "disconnected", disconnectedAt: opts.now },
-    });
-    const jobs = await cancelJobsForIntegration(tx, userId, integration.id, opts.now);
-    if (opts.deleteCachedData) {
-      await tx.task.deleteMany({ where: { userId, integrationId: integration.id } });
-      await tx.taskList.deleteMany({ where: { userId, integrationId: integration.id } });
-      await tx.syncCursor.deleteMany({ where: { userId, integrationId: integration.id } });
-    }
-    // Phase 2: erase token envelope here and attempt provider revocation, reporting the
-    // actual result. Mock integrations hold no credentials.
-    const revocation = integration.mode === "mock" ? "not_applicable" : "not_implemented";
-    await recordAudit(tx, {
-      userId,
-      actor: "user",
-      action: "integration.disconnected",
-      targetType: "integration",
-      targetId: integration.id,
-      metadata: { deleteCachedData: opts.deleteCachedData, revocation, ...jobs },
-      requestId: opts.requestId,
-    });
-    return { id: integration.id, revocation, jobs };
   });
 }
 

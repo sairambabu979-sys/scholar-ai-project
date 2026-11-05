@@ -1,18 +1,37 @@
-import { isValidDateOnly, todayInTimeZone, type Clock } from "@scholar/domain";
-import { ProviderError, type GoogleTasksReadClient } from "@scholar/integrations";
-import { buildMockGoogleTasksDataset, MockGoogleTasksClient } from "@scholar/testing";
 import type { IntegrationsMode } from "@scholar/config";
+import type { Db } from "@scholar/db";
+import { isValidDateOnly, todayInTimeZone, type Clock } from "@scholar/domain";
+import {
+  LiveGoogleTasksClient,
+  ProviderError,
+  type FetchLike,
+  type GoogleOAuthClientConfig,
+  type GoogleTasksReadClient,
+} from "@scholar/integrations";
+import type { Keyring } from "@scholar/security";
+import { createGoogleTokenProvider } from "@scholar/services";
+import { buildMockGoogleTasksDataset, MockGoogleTasksClient } from "@scholar/testing";
+
+export interface LiveClientDeps {
+  db: Db;
+  keyring: Keyring;
+  fetch: FetchLike;
+  oauth: Pick<GoogleOAuthClientConfig, "clientId" | "clientSecret">;
+}
 
 /**
- * Select the Google Tasks client for an integration. A mock integration only ever gets the
- * labelled mock client; a live integration never silently falls back to fixtures.
+ * Select the Google Tasks client for an integration. Mock integrations only ever get the
+ * labelled fixture client and only in mock mode; live integrations only ever get the real
+ * client and only in live mode. There is no silent fallback in either direction.
  */
 export function createGoogleTasksClientFactory(opts: {
   integrationsMode: IntegrationsMode;
   clock: Clock;
+  live?: LiveClientDeps;
 }) {
   return async (integration: {
     id: string;
+    userId?: string;
     mode: "mock" | "live";
     config: unknown;
   }): Promise<GoogleTasksReadClient> => {
@@ -27,7 +46,25 @@ export function createGoogleTasksClientFactory(opts: {
         clock: opts.clock,
       });
     }
-    // Phase 2 (M1): live OAuth client with encrypted token envelopes.
-    throw new ProviderError("unavailable", "live_google_tasks_not_implemented");
+    if (opts.integrationsMode !== "live") {
+      throw new ProviderError("unavailable", "live_integration_in_mock_mode");
+    }
+    if (!opts.live || !integration.userId) {
+      throw new ProviderError("unavailable", "live_google_tasks_not_configured");
+    }
+    const live = opts.live;
+    return new LiveGoogleTasksClient({
+      fetch: live.fetch,
+      tokens: createGoogleTokenProvider(
+        {
+          db: live.db,
+          keyring: live.keyring,
+          fetch: live.fetch,
+          clock: opts.clock,
+          oauth: live.oauth,
+        },
+        { id: integration.id, userId: integration.userId },
+      ),
+    });
   };
 }
