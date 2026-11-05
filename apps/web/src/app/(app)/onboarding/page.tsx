@@ -3,23 +3,24 @@ import { loadAccountState } from "@/lib/account-state";
 import { TimezoneForm } from "@/components/timezone-form";
 import { GoogleTasksConnection } from "@/components/google-tasks-connection";
 import { GoogleCallbackNotice } from "@/components/google-callback-notice";
+import { CanvasConnection } from "@/components/canvas-connection";
 import { FinishOnboardingButton } from "@/components/finish-onboarding-button";
 
 export const dynamic = "force-dynamic";
 
 export default async function OnboardingPage(props: {
-  searchParams: Promise<{ google?: string; reason?: string }>;
+  searchParams: Promise<{ google?: string; canvas?: string; reason?: string }>;
 }) {
   const user = await requirePageUser();
   const state = await loadAccountState(user.id);
   const { profile, activeGoogle } = state;
-  const { google, reason } = await props.searchParams;
+  const { google, canvas, reason } = await props.searchParams;
   const hasSelection = Boolean(activeGoogle?.taskLists.some((l) => l.selected));
 
   return (
     <>
       <h1>Set up Scholar AI</h1>
-      <GoogleCallbackNotice google={google} reason={reason} />
+      <GoogleCallbackNotice google={google} canvas={canvas} reason={reason} />
       <ol className="steps stack">
         <li>
           <section className="card" aria-labelledby="tz-heading">
@@ -39,12 +40,8 @@ export default async function OnboardingPage(props: {
         </li>
         <li>
           <section className="card" aria-labelledby="canvas-heading">
-            <h2 id="canvas-heading">Canvas</h2>
-            <p className="notice" data-testid="canvas-unavailable">
-              Canvas connection unavailable. Connecting Canvas requires your institution to approve
-              a developer key; that has not been established. Manual assignment entry arrives in
-              Phase 3. Google Tasks and study features do not depend on it.
-            </p>
+            <h2 id="canvas-heading">Canvas (optional)</h2>
+            <CanvasConnection state={state} returnTo="/onboarding" showDisconnect={false} />
           </section>
         </li>
         <li>

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { listDashboardTasks } from "@scholar/db";
 import {
   formatDateOnly,
+  effectiveDeadline,
   groupByBucket,
   todayInTimeZone,
   type DashboardBucket,
@@ -12,7 +13,7 @@ import { loadAccountState } from "@/lib/account-state";
 import { db } from "@/lib/db";
 import { SyncButton } from "@/components/sync-button";
 import { SyncStatus } from "@/components/sync-status";
-import { TaskItem } from "@/components/task-item";
+import { TaskItem, type DashboardTask } from "@/components/task-item";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,18 @@ export default async function DashboardPage() {
 
   const tz = state.profile.timezone;
   const today = todayInTimeZone(state.now, tz);
-  const tasks = await listDashboardTasks(db(), user.id);
+  const tasks: DashboardTask[] = (await listDashboardTasks(db(), user.id)).map((t) => {
+    const deadline = effectiveDeadline(
+      {
+        manualDueAt: t.manualContext?.dueAt,
+        manualDueDate: t.manualContext?.dueDate,
+        canvasDueAt: t.link?.assignment.available ? t.link.assignment.dueAt : null,
+        googleDueDate: t.dueDate,
+      },
+      tz,
+    );
+    return { ...t, deadline, dueDate: deadline?.date ?? null };
+  });
   const groups = groupByBucket(tasks, today);
   const g = state.activeGoogle;
 
@@ -87,7 +99,7 @@ export default async function DashboardPage() {
             ) : (
               <ul className="task-list">
                 {groups[s.key].map((t) => (
-                  <TaskItem key={t.id} task={t} today={today} />
+                  <TaskItem key={t.id} task={t} today={today} timeZone={tz} />
                 ))}
               </ul>
             )}
@@ -95,9 +107,9 @@ export default async function DashboardPage() {
         ))}
       </div>
       <p className="small muted">
-        Assignment help, Canvas context and study tools arrive in later phases. Nothing is sent to
-        an AI provider in this build, and Scholar AI never changes your Google Tasks or submits
-        Canvas work.
+        Open a task to link its Canvas assignment or add details by hand. Assignment help and study
+        tools arrive in later phases. Nothing is sent to an AI provider in this build, and Scholar
+        AI never changes your Google Tasks or submits Canvas work.
       </p>
     </>
   );

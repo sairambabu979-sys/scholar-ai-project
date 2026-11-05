@@ -210,6 +210,24 @@ export interface TaskView {
   providerUpdatedAt: Date | null;
   list: { id: string; title: string };
   integration: { id: string; mode: "mock" | "live"; status: string };
+  /** Opaque version for optimistic concurrency (changes whenever provider fields change). */
+  versionHash: string;
+  /** Student-confirmed Canvas assignment, if any (link survives even if the assignment
+   * later becomes unavailable, which is shown). */
+  link: {
+    method: "url" | "suggested" | "manual";
+    assignment: {
+      id: string;
+      title: string;
+      dueAt: Date | null;
+      htmlUrl: string | null;
+      available: boolean;
+      courseCode: string | null;
+      courseName: string;
+      integrationMode: "mock" | "live";
+    };
+  } | null;
+  manualContext: { title: string; dueDate: DateOnly | null; dueAt: Date | null } | null;
 }
 
 const taskViewSelect = {
@@ -227,6 +245,24 @@ const taskViewSelect = {
   providerUpdatedAt: true,
   taskList: { select: { id: true, title: true } },
   integration: { select: { id: true, mode: true, status: true } },
+  versionHash: true,
+  link: {
+    select: {
+      method: true,
+      assignment: {
+        select: {
+          id: true,
+          title: true,
+          dueAt: true,
+          htmlUrl: true,
+          available: true,
+          course: { select: { courseCode: true, name: true } },
+          integration: { select: { mode: true, status: true } },
+        },
+      },
+    },
+  },
+  manualContext: { select: { title: true, dueDate: true, dueAt: true } },
 } as const;
 
 type TaskRow = Prisma.TaskGetPayload<{ select: typeof taskViewSelect }>;
@@ -247,6 +283,30 @@ function toTaskView(row: TaskRow): TaskView {
     providerUpdatedAt: row.providerUpdatedAt,
     list: row.taskList,
     integration: row.integration,
+    versionHash: row.versionHash,
+    link:
+      row.link && row.link.assignment.integration.status !== "disconnected"
+        ? {
+            method: row.link.method,
+            assignment: {
+              id: row.link.assignment.id,
+              title: row.link.assignment.title,
+              dueAt: row.link.assignment.dueAt,
+              htmlUrl: row.link.assignment.htmlUrl,
+              available: row.link.assignment.available,
+              courseCode: row.link.assignment.course.courseCode,
+              courseName: row.link.assignment.course.name,
+              integrationMode: row.link.assignment.integration.mode,
+            },
+          }
+        : null,
+    manualContext: row.manualContext
+      ? {
+          title: row.manualContext.title,
+          dueDate: row.manualContext.dueDate ? dbDateToDateOnly(row.manualContext.dueDate) : null,
+          dueAt: row.manualContext.dueAt,
+        }
+      : null,
   };
 }
 
@@ -358,14 +418,14 @@ export async function getLatestSyncRun(db: Db, userId: string, integrationId: st
   });
 }
 
-/** System-level (worker scheduler only): active integrations of users with sync enabled. */
+/** System-level (worker scheduler only): active Tasks/Canvas integrations of users with sync enabled. */
 export async function listIntegrationsForScheduling(db: Db) {
   return db.integration.findMany({
     where: {
       status: "active",
-      provider: "google_tasks",
+      provider: { in: ["google_tasks", "canvas"] },
       user: { preference: { is: { syncEnabled: true } }, deletionRequestedAt: null },
     },
-    select: { id: true, userId: true, lastAttemptAt: true },
+    select: { id: true, userId: true, provider: true, lastAttemptAt: true },
   });
 }

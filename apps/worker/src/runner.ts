@@ -3,6 +3,7 @@
  * fencing. Retryable provider failures are retried with bounded full-jitter backoff.
  */
 import {
+  CANVAS_SYNC_JOB,
   claimNextJob,
   failJob,
   finishJob,
@@ -13,9 +14,10 @@ import {
   type JobRecord,
 } from "@scholar/db";
 import { retryDelayMs, type Clock } from "@scholar/domain";
-import { isProviderError } from "@scholar/integrations";
+import { isProviderError, ProviderError } from "@scholar/integrations";
 import type { Logger } from "@scholar/security";
 import { runGoogleTasksSync, type SyncDeps } from "./handlers/google-tasks-sync.ts";
+import { runCanvasSync, type CanvasSyncDeps } from "./handlers/canvas-sync.ts";
 
 export interface RunnerDeps {
   db: Db;
@@ -23,6 +25,7 @@ export interface RunnerDeps {
   logger: Logger;
   workerId: string;
   clientFor: SyncDeps["clientFor"];
+  canvasClientFor?: CanvasSyncDeps["clientFor"];
   leaseMs?: number;
 }
 
@@ -46,6 +49,24 @@ async function dispatch(
           clock: deps.clock,
           logger: deps.logger,
           clientFor: deps.clientFor,
+          isCancelled,
+        },
+        { userId: job.userId, integrationId: p.integrationId, trigger, jobId: job.id },
+      );
+      const { status, ...rest } = summary;
+      return { status, result: rest as unknown as Record<string, unknown> };
+    }
+    case CANVAS_SYNC_JOB: {
+      const p = job.payload as { integrationId?: string; trigger?: string };
+      if (!p.integrationId) throw new Error("sync job missing integrationId");
+      if (!deps.canvasClientFor) throw new ProviderError("unavailable", "canvas_not_configured");
+      const trigger = p.trigger === "scheduled" || p.trigger === "initial" ? p.trigger : "manual";
+      const summary = await runCanvasSync(
+        {
+          db: deps.db,
+          clock: deps.clock,
+          logger: deps.logger,
+          clientFor: deps.canvasClientFor,
           isCancelled,
         },
         { userId: job.userId, integrationId: p.integrationId, trigger, jobId: job.id },

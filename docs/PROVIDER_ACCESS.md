@@ -45,11 +45,23 @@ these scopes generally expire after ~7 days, so background sync would require re
 weekly until the app is verified/published. Recheck Google's current rules before relying on
 this.
 
-### Canvas (Phase 3, not implemented)
+### Canvas (implemented in Phase 3; live gate blocked on the institution)
 
-To be derived from the institution's developer-key scope picker at implementation time; only
-GET endpoints for courses, assignments, the current student's own submissions, and calendar
-events. No write scopes. `include[]=read_status` is never used.
+Requested only when `CANVAS_ENABLED=true` with an approved `CANVAS_BASE_URL`. Defaults (override
+with `CANVAS_SCOPES` to match the developer key; config refuses anything but `url:GET|/api/v1/…`):
+
+| Scope                                             | Used for                                                                                                                     |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `url:GET\|/api/v1/courses`                        | The student's active courses (`enrollment_type=student`)                                                                     |
+| `url:GET\|/api/v1/courses/:course_id/assignments` | Assignments with the student's effective dates; `include[]=submission` for their own submission state when the key allows it |
+
+Never requested or called: any POST/PUT/DELETE API, submissions/quiz endpoints, grades,
+messaging, `include[]=read_status`. Token revocation uses `DELETE /login/oauth2/token` (OAuth
+endpoint, not an API scope). Redirect URI: `{APP_URL}/api/v1/integrations/canvas/callback`.
+
+What to ask the institution for: a developer key (API key, not LTI) with **Enforce scopes** on,
+the two GET scopes above, "Allow include parameters" if they will permit `include[]=submission`,
+and the redirect URI above. If they decline, the product runs in manual mode.
 
 ## What mock mode is
 

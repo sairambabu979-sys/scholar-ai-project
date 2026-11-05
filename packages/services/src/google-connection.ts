@@ -21,11 +21,8 @@ import type { Clock } from "@scholar/domain";
 import {
   buildAuthorizationUrl,
   codeChallengeS256,
-  createCodeVerifier,
-  createStateToken,
   exchangeAuthorizationCode,
   GOOGLE_TASKS_READ_SCOPES,
-  hashStateToken,
   ProviderError,
   readIdTokenClaims,
   revokeToken,
@@ -33,13 +30,13 @@ import {
   type FetchLike,
   type GoogleOAuthClientConfig,
 } from "@scholar/integrations";
-import { open, seal, type Keyring, type Logger } from "@scholar/security";
+import type { Keyring, Logger } from "@scholar/security";
 import { openTokens, writeEnvelope } from "./token-store.ts";
+import { consumeOAuthTransaction, createOAuthTransaction, type ReturnPath } from "./oauth-state.ts";
 
-export const OAUTH_STATE_TTL_MS = 10 * 60_000;
+export { OAUTH_STATE_TTL_MS, RETURN_PATHS, type ReturnPath } from "./oauth-state.ts";
+
 export const GOOGLE_TASKS_PROVIDER = "google_tasks";
-export const RETURN_PATHS = ["/onboarding", "/settings"] as const;
-export type ReturnPath = (typeof RETURN_PATHS)[number];
 
 export interface GoogleConnectionDeps {
   db: Db;
@@ -52,16 +49,11 @@ export interface GoogleConnectionDeps {
   logger?: Logger;
 }
 
-const verifierAad = (stateHash: string) => `oauth_state:${GOOGLE_TASKS_PROVIDER}:${stateHash}`;
-
 export async function startGoogleTasksConnection(
   deps: GoogleConnectionDeps,
   input: { userId: string; sessionId: string; returnPath: ReturnPath; requestId?: string },
 ): Promise<{ authorizationUrl: string }> {
   const now = deps.clock.now();
-  const state = createStateToken();
-  const stateHash = hashStateToken(state);
-  const verifier = createCodeVerifier();
 
   // Ask Google for consent (and therefore a refresh token) only when we do not hold one.
   const existing = await deps.db.tokenEnvelope.findFirst({
@@ -73,25 +65,16 @@ export async function startGoogleTasksConnection(
     select: { id: true },
   });
 
-  await deps.db.$transaction([
-    deps.db.oAuthState.deleteMany({
-      where: { userId: input.userId, expiresAt: { lt: new Date(now.getTime() - 60 * 60_000) } },
-    }),
-    deps.db.oAuthState.create({
-      data: {
-        userId: input.userId,
-        sessionId: input.sessionId,
-        provider: GOOGLE_TASKS_PROVIDER,
-        stateHash,
-        sealedCodeVerifier: seal(deps.keyring, verifier, verifierAad(stateHash)),
-        appOrigin: deps.appOrigin,
-        redirectUri: deps.oauth.redirectUri,
-        requestedScopes: [...GOOGLE_TASKS_READ_SCOPES],
-        returnPath: input.returnPath,
-        expiresAt: new Date(now.getTime() + OAUTH_STATE_TTL_MS),
-      },
-    }),
-  ]);
+  const { state, codeVerifier: verifier } = await createOAuthTransaction(deps.db, deps.keyring, {
+    provider: GOOGLE_TASKS_PROVIDER,
+    userId: input.userId,
+    sessionId: input.sessionId,
+    appOrigin: deps.appOrigin,
+    redirectUri: deps.oauth.redirectUri,
+    scopes: GOOGLE_TASKS_READ_SCOPES,
+    returnPath: input.returnPath,
+    now,
+  });
   await recordAudit(deps.db, {
     userId: input.userId,
     actor: "user",
@@ -138,21 +121,6 @@ export type CallbackResult =
     }
   | { ok: false; reason: CallbackFailure; returnPath: ReturnPath };
 
-interface ConsumedState {
-  user_id: string;
-  session_id: string;
-  provider: string;
-  state_hash: string;
-  sealed_code_verifier: string;
-  app_origin: string;
-  redirect_uri: string;
-  return_path: string;
-  expires_at: Date;
-}
-
-const asReturnPath = (p: string | undefined): ReturnPath =>
-  (RETURN_PATHS as readonly string[]).includes(p ?? "") ? (p as ReturnPath) : "/onboarding";
-
 export async function completeGoogleTasksConnection(
   deps: GoogleConnectionDeps,
   input: {
@@ -179,28 +147,17 @@ export async function completeGoogleTasksConnection(
     return { ok: false, reason, returnPath };
   };
 
-  if (!input.state || input.state.length > 512) return fail("invalid_state");
-  const stateHash = hashStateToken(input.state);
-
-  // Consume atomically: a state can be used exactly once, even by concurrent requests.
-  const rows = await deps.db.$queryRaw<ConsumedState[]>`
-    UPDATE oauth_states SET consumed_at = ${now}::timestamptz
-    WHERE state_hash = ${stateHash} AND consumed_at IS NULL
-    RETURNING user_id, session_id, provider, state_hash, sealed_code_verifier, app_origin,
-              redirect_uri, return_path, expires_at`;
-  const st = rows[0];
-  if (!st) return fail("invalid_state");
-  const returnPath = asReturnPath(st.return_path);
-  if (
-    st.user_id !== input.userId ||
-    st.session_id !== input.sessionId ||
-    st.provider !== GOOGLE_TASKS_PROVIDER ||
-    st.app_origin !== deps.appOrigin ||
-    st.redirect_uri !== deps.oauth.redirectUri
-  ) {
-    return fail("state_mismatch", returnPath);
-  }
-  if (st.expires_at.getTime() <= now.getTime()) return fail("state_expired", returnPath);
+  const consumed = await consumeOAuthTransaction(deps.db, deps.keyring, {
+    provider: GOOGLE_TASKS_PROVIDER,
+    state: input.state,
+    userId: input.userId,
+    sessionId: input.sessionId,
+    appOrigin: deps.appOrigin,
+    redirectUri: deps.oauth.redirectUri,
+    now,
+  });
+  if (!consumed.ok) return fail(consumed.reason, consumed.returnPath);
+  const returnPath = consumed.returnPath;
   if (input.error)
     return fail(input.error === "access_denied" ? "denied" : "provider_error", returnPath);
   if (!input.code || input.code.length > 2048) return fail("invalid_request", returnPath);
@@ -211,7 +168,7 @@ export async function completeGoogleTasksConnection(
       fetch: deps.fetch,
       config: deps.oauth,
       code: input.code,
-      codeVerifier: open(deps.keyring, st.sealed_code_verifier, verifierAad(st.state_hash)),
+      codeVerifier: consumed.codeVerifier,
       now,
     });
   } catch (e) {
@@ -383,91 +340,4 @@ export async function completeGoogleTasksConnection(
     returnPath,
     refreshTokenPreserved: outcome.preserved,
   };
-}
-
-export type RevocationOutcome = "revoked" | "failed" | "no_credentials" | "not_applicable";
-
-/**
- * Disconnect an owned integration: disable sync, cancel queued jobs (running ones stop at their
- * next checkpoint), erase credentials, optionally delete cached data — all in one transaction —
- * then attempt provider revocation and record what actually happened.
- */
-export async function disconnectIntegrationWithRevocation(
-  deps: Pick<GoogleConnectionDeps, "db" | "fetch" | "clock"> & { keyring: Keyring | null },
-  input: { userId: string; integrationId: string; deleteCachedData: boolean; requestId?: string },
-): Promise<{
-  id: string;
-  revocation: RevocationOutcome;
-  jobs: { cancelled: number; signalled: number };
-} | null> {
-  const now = deps.clock.now();
-  const result = await deps.db.$transaction(async (tx) => {
-    const integration = await tx.integration.findFirst({
-      where: { id: input.integrationId, userId: input.userId },
-      select: { id: true, mode: true },
-    });
-    if (!integration) return null;
-    await tx.integration.update({
-      where: { id: integration.id },
-      data: { status: "disconnected", disconnectedAt: now },
-    });
-    const jobs = await cancelJobsForIntegration(tx, input.userId, integration.id, now);
-    const envelope = await tx.tokenEnvelope.findUnique({
-      where: { integrationId: integration.id },
-      select: { sealedPayload: true },
-    });
-    if (envelope) await tx.tokenEnvelope.delete({ where: { integrationId: integration.id } });
-    if (input.deleteCachedData) {
-      await tx.task.deleteMany({ where: { userId: input.userId, integrationId: integration.id } });
-      await tx.taskList.deleteMany({
-        where: { userId: input.userId, integrationId: integration.id },
-      });
-      await tx.syncCursor.deleteMany({
-        where: { userId: input.userId, integrationId: integration.id },
-      });
-    }
-    await recordAudit(tx, {
-      userId: input.userId,
-      actor: "user",
-      action: "integration.disconnected",
-      targetType: "integration",
-      targetId: integration.id,
-      metadata: {
-        deleteCachedData: input.deleteCachedData,
-        credentialsErased: Boolean(envelope),
-        ...jobs,
-      },
-      requestId: input.requestId,
-    });
-    return { integration, envelope, jobs };
-  });
-  if (!result) return null;
-
-  let revocation: RevocationOutcome;
-  if (result.integration.mode === "mock") revocation = "not_applicable";
-  else if (!result.envelope) revocation = "no_credentials";
-  else {
-    try {
-      if (!deps.keyring) throw new Error("no keyring");
-      const t = openTokens(
-        deps.keyring,
-        input.userId,
-        result.integration.id,
-        result.envelope.sealedPayload,
-      );
-      revocation = await revokeToken({ fetch: deps.fetch, token: t.refreshToken ?? t.accessToken });
-    } catch {
-      revocation = "failed";
-    }
-  }
-  await recordAudit(deps.db, {
-    userId: input.userId,
-    actor: "system",
-    action: "integration.revocation",
-    targetType: "integration",
-    targetId: result.integration.id,
-    metadata: { outcome: revocation },
-    requestId: input.requestId,
-  });
-  return { id: result.integration.id, revocation, jobs: result.jobs };
 }

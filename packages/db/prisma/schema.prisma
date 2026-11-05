@@ -166,6 +166,8 @@ model Integration {
   syncRuns      SyncRun[]
   syncCursors   SyncCursor[]
   tokenEnvelope TokenEnvelope?
+  courses       Course[]
+  assignments   Assignment[]
 
   @@unique([userId, id])
   @@unique([userId, provider, externalAccountId])
@@ -228,8 +230,10 @@ model Task {
   createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  integration Integration @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
-  taskList    TaskList    @relation(fields: [userId, taskListId], references: [userId, id], onDelete: Cascade)
+  integration   Integration    @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
+  taskList      TaskList       @relation(fields: [userId, taskListId], references: [userId, id], onDelete: Cascade)
+  link          TaskLink?
+  manualContext ManualContext?
 
   @@unique([integrationId, externalId])
   @@unique([userId, id])
@@ -332,6 +336,143 @@ model OAuthState {
   @@index([userId, createdAt])
   @@index([expiresAt])
   @@map("oauth_states")
+}
+
+// ---------------------------------------------------------------------------------------
+// Canvas context (Phase 3 / M2) — read-only, student-scoped
+// ---------------------------------------------------------------------------------------
+
+model Course {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  integrationId String    @map("integration_id") @db.Uuid
+  externalId    String    @map("external_id")
+  name          String
+  courseCode    String?   @map("course_code")
+  workflowState String?   @map("workflow_state")
+  /// False once a complete scan no longer returns the course (may be access loss, not deletion).
+  available     Boolean   @default(true)
+  lastSeenAt    DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  integration Integration  @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
+  assignments Assignment[]
+
+  @@unique([integrationId, externalId])
+  @@unique([userId, id])
+  @@map("courses")
+}
+
+model Assignment {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  integrationId    String    @map("integration_id") @db.Uuid
+  courseId         String    @map("course_id") @db.Uuid
+  externalId       String    @map("external_id")
+  title            String
+  /// Canvas HTML converted to restricted plain text (scripts/frames/images removed).
+  descriptionText  String?   @map("description_text")
+  /// https links found in the description; displayed, never fetched by the server.
+  descriptionLinks String[]  @default([]) @map("description_links")
+  /// Canvas page for the student ("Open in Canvas"); validated against the approved origin.
+  htmlUrl          String?   @map("html_url")
+  /// Student-effective dates as returned for the current student (overrides applied).
+  dueAt            DateTime? @map("due_at") @db.Timestamptz(3)
+  unlockAt         DateTime? @map("unlock_at") @db.Timestamptz(3)
+  lockAt           DateTime? @map("lock_at") @db.Timestamptz(3)
+  submissionTypes  String[]  @default([]) @map("submission_types")
+  pointsPossible   Float?    @map("points_possible")
+  /// Bounded rubric snapshot: [{ description, points }].
+  rubric           Json?
+  isQuiz           Boolean   @default(false) @map("is_quiz")
+  lockedForUser    Boolean   @default(false) @map("locked_for_user")
+  available        Boolean   @default(true)
+  versionHash      String    @map("version_hash")
+  syncedAt         DateTime  @map("synced_at") @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  integration Integration         @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
+  course      Course              @relation(fields: [userId, courseId], references: [userId, id], onDelete: Cascade)
+  submission  SubmissionSnapshot?
+  taskLinks   TaskLink[]
+
+  @@unique([integrationId, externalId])
+  @@unique([userId, id])
+  @@index([userId, dueAt])
+  @@map("assignments")
+}
+
+/// The current student's own submission state. Never class-wide data, never scores.
+model SubmissionSnapshot {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  assignmentId String    @unique @map("assignment_id") @db.Uuid
+  /// Canvas workflow_state, or "unavailable" when the endpoint/include was not permitted.
+  status       String
+  submittedAt  DateTime? @map("submitted_at") @db.Timestamptz(3)
+  gradedAt     DateTime? @map("graded_at") @db.Timestamptz(3)
+  late         Boolean?
+  missing      Boolean?
+  excused      Boolean?
+  attempt      Int?
+  syncedAt     DateTime  @map("synced_at") @db.Timestamptz(3)
+
+  assignment Assignment @relation(fields: [userId, assignmentId], references: [userId, id], onDelete: Cascade)
+
+  @@unique([userId, assignmentId])
+  @@map("submission_snapshots")
+}
+
+enum TaskLinkMethod {
+  url
+  suggested
+  manual
+}
+
+/// A student-confirmed link between a task and a Canvas assignment. One per task.
+model TaskLink {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String         @map("user_id") @db.Uuid
+  taskId       String         @unique @map("task_id") @db.Uuid
+  assignmentId String         @map("assignment_id") @db.Uuid
+  method       TaskLinkMethod
+  confidence   Float?
+  reasons      String[]       @default([])
+  confirmedAt  DateTime       @map("confirmed_at") @db.Timestamptz(3)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  task       Task       @relation(fields: [userId, taskId], references: [userId, id], onDelete: Cascade)
+  assignment Assignment @relation(fields: [userId, assignmentId], references: [userId, id], onDelete: Cascade)
+
+  @@unique([userId, taskId])
+  @@index([assignmentId])
+  @@map("task_links")
+}
+
+/// Student-supplied assignment context when Canvas is unavailable or has no matching record.
+/// Never given a fabricated provider identity.
+model ManualContext {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  taskId       String    @unique @map("task_id") @db.Uuid
+  title        String
+  requirements String
+  /// https links the student listed (displayed only; the server never fetches them).
+  sources      String[]  @default([])
+  /// Explicit local deadline override (date, or instant if a time was given).
+  dueDate      DateTime? @map("due_date") @db.Date
+  dueAt        DateTime? @map("due_at") @db.Timestamptz(3)
+  version      Int       @default(1)
+  versionHash  String    @map("version_hash")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  task Task @relation(fields: [userId, taskId], references: [userId, id], onDelete: Cascade)
+
+  @@unique([userId, taskId])
+  @@map("manual_contexts")
 }
 
 // ---------------------------------------------------------------------------------------

@@ -107,6 +107,7 @@ describe("environment validation", () => {
   it("requires an https origin for Canvas when enabled", () => {
     const base = {
       ...template,
+      TOKEN_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 3).toString("base64"),
       CANVAS_ENABLED: "true",
       CANVAS_CLIENT_ID: "a",
       CANVAS_CLIENT_SECRET: "b",
@@ -145,6 +146,19 @@ describe("environment validation", () => {
     ).toMatch(/PREVIOUS_KEYS/);
     const ok = `old:${Buffer.alloc(32, 2).toString("base64")}`;
     expect(issuesOf({ ...template, TOKEN_ENCRYPTION_PREVIOUS_KEYS: ok })).toEqual([]);
+  });
+
+  it("accepts only read-only Canvas scopes", () => {
+    expect(issuesOf({ ...template, CANVAS_SCOPES: "url:GET|/api/v1/courses" })).toEqual([]);
+    expect(
+      issuesOf({
+        ...template,
+        CANVAS_SCOPES: "url:POST|/api/v1/courses/:id/assignments/:id/submissions",
+      }).join(),
+    ).toMatch(/CANVAS_SCOPES/);
+    expect(issuesOf({ ...template, CANVAS_SCOPES: "url:PUT|/api/v1/x" }).join()).toMatch(
+      /CANVAS_SCOPES/,
+    );
   });
 
   it("live mode requires Google sign-in credentials", () => {

@@ -92,7 +92,7 @@ describe("live Google Tasks sync through the worker (fake Google)", () => {
   it("disconnect erases credentials immediately and reports revocation honestly (A26)", async () => {
     const c = await connectedWorker();
     const r = await disconnectIntegrationWithRevocation(
-      { db, keyring: c.h.keyring, fetch: c.h.google.fetch, clock: c.h.clock },
+      { db, keyring: c.h.keyring, fetchFor: () => c.h.google.fetch, clock: c.h.clock },
       { userId: c.user.id, integrationId: c.integrationId, deleteCachedData: false },
     );
     expect(r?.revocation).toBe("revoked");
@@ -103,7 +103,7 @@ describe("live Google Tasks sync through the worker (fake Google)", () => {
     const c2 = await connectedWorker();
     c2.h.google.revocationStatus = 400;
     const r2 = await disconnectIntegrationWithRevocation(
-      { db, keyring: c2.h.keyring, fetch: c2.h.google.fetch, clock: c2.h.clock },
+      { db, keyring: c2.h.keyring, fetchFor: () => c2.h.google.fetch, clock: c2.h.clock },
       { userId: c2.user.id, integrationId: c2.integrationId, deleteCachedData: true },
     );
     expect(r2?.revocation).toBe("failed");

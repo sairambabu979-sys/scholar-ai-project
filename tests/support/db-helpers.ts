@@ -10,7 +10,8 @@ export function testDb(): Db {
 /** Wipe all application tables (test database only). */
 export async function resetDatabase(db: Db): Promise<void> {
   await db.$executeRawUnsafe(`
-    TRUNCATE TABLE audit_events, jobs, oauth_states, token_envelopes, sync_cursors, sync_runs,
+    TRUNCATE TABLE audit_events, jobs, oauth_states, token_envelopes, task_links, manual_contexts,
+      submission_snapshots, assignments, courses, sync_cursors, sync_runs,
       tasks, task_lists, integrations,
       preferences, sessions, auth_accounts, verifications, worker_heartbeats, users
     RESTART IDENTITY CASCADE`);
@@ -51,7 +52,7 @@ export function disconnect(
   now = new Date(),
 ) {
   return disconnectIntegrationWithRevocation(
-    { db, keyring: null, fetch: noNetwork, clock: { now: () => now } },
+    { db, keyring: null, fetchFor: () => noNetwork, clock: { now: () => now } },
     { userId, integrationId, deleteCachedData },
   );
 }
