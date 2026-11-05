@@ -34,6 +34,7 @@ const nextConfig: NextConfig = {
     "@scholar/domain",
     "@scholar/integrations",
     "@scholar/security",
+    "@scholar/services",
   ],
   serverExternalPackages: ["pg"],
   async headers() {

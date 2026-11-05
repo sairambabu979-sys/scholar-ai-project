@@ -120,6 +120,33 @@ describe("environment validation", () => {
     expect(issuesOf({ ...base, CANVAS_BASE_URL: "https://canvas.school.example" })).toEqual([]);
   });
 
+  it("live mode requires a token encryption key and the Tasks redirect URI", () => {
+    const live = {
+      ...template,
+      INTEGRATIONS_MODE: "live",
+      GOOGLE_CLIENT_ID: "id",
+      GOOGLE_CLIENT_SECRET: "secret",
+    };
+    expect(issuesOf({ ...live, GOOGLE_TASKS_REDIRECT_URI: "" }).join()).toMatch(
+      /GOOGLE_TASKS_REDIRECT_URI/,
+    );
+    expect(issuesOf(live).join()).toMatch(/TOKEN_ENCRYPTION_KEY_BASE64/);
+    const key = Buffer.alloc(32, 1).toString("base64");
+    expect(issuesOf({ ...live, TOKEN_ENCRYPTION_KEY_BASE64: key })).toEqual([]);
+    expect(
+      parseEnv({ ...live, TOKEN_ENCRYPTION_KEY_BASE64: key }).env.demoPassword,
+    ).toBeUndefined();
+  });
+
+  it("validates key ids and rotation keys", () => {
+    expect(issuesOf({ ...template, TOKEN_KEY_ID: "has space" }).join()).toMatch(/TOKEN_KEY_ID/);
+    expect(
+      issuesOf({ ...template, TOKEN_ENCRYPTION_PREVIOUS_KEYS: "old:c2hvcnQ=" }).join(),
+    ).toMatch(/PREVIOUS_KEYS/);
+    const ok = `old:${Buffer.alloc(32, 2).toString("base64")}`;
+    expect(issuesOf({ ...template, TOKEN_ENCRYPTION_PREVIOUS_KEYS: ok })).toEqual([]);
+  });
+
   it("live mode requires Google sign-in credentials", () => {
     expect(issuesOf({ ...template, INTEGRATIONS_MODE: "live" }).join()).toMatch(/GOOGLE_CLIENT_ID/);
   });

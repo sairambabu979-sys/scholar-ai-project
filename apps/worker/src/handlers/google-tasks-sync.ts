@@ -54,6 +54,7 @@ export interface SyncDeps {
   /** Build the provider client for this integration (mock or live). */
   clientFor(integration: {
     id: string;
+    userId: string;
     mode: "mock" | "live";
     config: unknown;
   }): Promise<GoogleTasksReadClient>;
@@ -128,6 +129,7 @@ export async function runGoogleTasksSync(deps: SyncDeps, input: SyncInput): Prom
   try {
     const client = await deps.clientFor({
       id: integration.id,
+      userId: integration.userId,
       mode: integration.mode,
       config: integration.config,
     });

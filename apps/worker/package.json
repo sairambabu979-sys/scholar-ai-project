@@ -14,6 +14,7 @@
     "@scholar/domain": "*",
     "@scholar/integrations": "*",
     "@scholar/security": "*",
-    "@scholar/testing": "*"
+    "@scholar/testing": "*",
+    "@scholar/services": "*"
   }
 }

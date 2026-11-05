@@ -38,6 +38,7 @@ model User {
   integrations Integration[]
   jobs         Job[]
   auditEvents  AuditEvent[]
+  oauthStates  OAuthState[]
 
   @@map("users")
 }
@@ -99,18 +100,18 @@ model Verification {
 // ---------------------------------------------------------------------------------------
 
 model Preference {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId                String    @unique @map("user_id") @db.Uuid
-  syncEnabled           Boolean   @default(true) @map("sync_enabled")
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String    @unique @map("user_id") @db.Uuid
+  syncEnabled            Boolean   @default(true) @map("sync_enabled")
   /// Weekly study availability (Phase 5 consumes it). Shape validated in application code.
-  studyAvailability     Json?     @map("study_availability")
-  aiDataUseNoticeVersion String?  @map("ai_data_use_notice_version")
-  aiDataUseConsent      Boolean?  @map("ai_data_use_consent")
-  aiDataUseDecidedAt    DateTime? @map("ai_data_use_decided_at") @db.Timestamptz(3)
-  aiDailyLimitUsd       Decimal?  @map("ai_daily_limit_usd") @db.Decimal(10, 2)
-  onboardingCompletedAt DateTime? @map("onboarding_completed_at") @db.Timestamptz(3)
-  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  studyAvailability      Json?     @map("study_availability")
+  aiDataUseNoticeVersion String?   @map("ai_data_use_notice_version")
+  aiDataUseConsent       Boolean?  @map("ai_data_use_consent")
+  aiDataUseDecidedAt     DateTime? @map("ai_data_use_decided_at") @db.Timestamptz(3)
+  aiDailyLimitUsd        Decimal?  @map("ai_daily_limit_usd") @db.Decimal(10, 2)
+  onboardingCompletedAt  DateTime? @map("onboarding_completed_at") @db.Timestamptz(3)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -159,11 +160,12 @@ model Integration {
   createdAt         DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt         DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  taskLists   TaskList[]
-  tasks       Task[]
-  syncRuns    SyncRun[]
-  syncCursors SyncCursor[]
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskLists     TaskList[]
+  tasks         Task[]
+  syncRuns      SyncRun[]
+  syncCursors   SyncCursor[]
+  tokenEnvelope TokenEnvelope?
 
   @@unique([userId, id])
   @@unique([userId, provider, externalAccountId])
@@ -281,6 +283,55 @@ model SyncCursor {
 
   @@unique([integrationId, resourceKind, resourceId])
   @@map("sync_cursors")
+}
+
+/// Encrypted provider credentials for one integration (Phase 2 / M1). The payload holds the
+/// access and refresh tokens, sealed with envelope encryption and bound (AAD) to this
+/// integration and user. Never returned by any API; deleted on disconnect.
+model TokenEnvelope {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  integrationId        String    @unique @map("integration_id") @db.Uuid
+  /// Root key id that wrapped the data key (for rotation).
+  keyId                String    @map("key_id")
+  sealedPayload        String    @map("sealed_payload")
+  accessTokenExpiresAt DateTime? @map("access_token_expires_at") @db.Timestamptz(3)
+  hasRefreshToken      Boolean   @map("has_refresh_token")
+  grantedScopes        String[]  @default([]) @map("granted_scopes")
+  /// Incremented on every token change; lets concurrent refreshers detect each other.
+  tokenVersion         Int       @default(1) @map("token_version")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  integration Integration @relation(fields: [userId, integrationId], references: [userId, id], onDelete: Cascade)
+
+  @@unique([userId, integrationId])
+  @@map("token_envelopes")
+}
+
+/// One OAuth authorization transaction: single-use, short-lived, bound to the user, their
+/// session, the provider and the configured app origin. Only a hash of `state` is stored.
+model OAuthState {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  sessionId          String    @map("session_id")
+  provider           String
+  stateHash          String    @unique @map("state_hash")
+  /// PKCE code verifier, sealed (AAD bound to this row's state hash).
+  sealedCodeVerifier String    @map("sealed_code_verifier")
+  appOrigin          String    @map("app_origin")
+  redirectUri        String    @map("redirect_uri")
+  requestedScopes    String[]  @map("requested_scopes")
+  returnPath         String    @map("return_path")
+  expiresAt          DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt         DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("oauth_states")
 }
 
 // ---------------------------------------------------------------------------------------

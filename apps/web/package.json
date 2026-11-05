@@ -20,7 +20,8 @@
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "zod": "4.6.7",
-    "server-only": "0.0.1"
+    "server-only": "0.0.1",
+    "@scholar/services": "*"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

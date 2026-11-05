@@ -78,14 +78,19 @@ describe("worker runner", () => {
     expect(integration.lastErrorCode).toBe("invalid_grant");
   });
 
-  it("never serves fixtures to a live integration (no silent mock fallback)", async () => {
+  it("never swaps fixtures and real data in either direction (no silent fallback)", async () => {
     const clock = new FixedClock("2026-11-04T15:00:00.000Z");
-    const factory = createGoogleTasksClientFactory({ integrationsMode: "live", clock });
-    await expect(factory({ id: "x", mode: "mock", config: {} })).rejects.toMatchObject({
+    const live = createGoogleTasksClientFactory({ integrationsMode: "live", clock });
+    await expect(live({ id: "x", userId: "u", mode: "mock", config: {} })).rejects.toMatchObject({
       code: "mock_integration_in_live_mode",
     });
-    await expect(factory({ id: "x", mode: "live", config: {} })).rejects.toMatchObject({
-      code: "live_google_tasks_not_implemented",
+    // Live mode without credentials/keys configured: refuse rather than serve fixtures.
+    await expect(live({ id: "x", userId: "u", mode: "live", config: {} })).rejects.toMatchObject({
+      code: "live_google_tasks_not_configured",
+    });
+    const mock = createGoogleTasksClientFactory({ integrationsMode: "mock", clock });
+    await expect(mock({ id: "x", userId: "u", mode: "live", config: {} })).rejects.toMatchObject({
+      code: "live_integration_in_mock_mode",
     });
   });
 

@@ -1,22 +1,25 @@
 import { requirePageUser } from "@/lib/session";
 import { loadAccountState } from "@/lib/account-state";
 import { TimezoneForm } from "@/components/timezone-form";
-import { ConnectTasksButton } from "@/components/connect-tasks-button";
-import { ListSelectionForm } from "@/components/list-selection-form";
-import { SyncStatus } from "@/components/sync-status";
+import { GoogleTasksConnection } from "@/components/google-tasks-connection";
+import { GoogleCallbackNotice } from "@/components/google-callback-notice";
 import { FinishOnboardingButton } from "@/components/finish-onboarding-button";
 
 export const dynamic = "force-dynamic";
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage(props: {
+  searchParams: Promise<{ google?: string; reason?: string }>;
+}) {
   const user = await requirePageUser();
-  const { env, profile, activeGoogle } = await loadAccountState(user.id);
-  const mock = env.integrationsMode === "mock";
+  const state = await loadAccountState(user.id);
+  const { profile, activeGoogle } = state;
+  const { google, reason } = await props.searchParams;
   const hasSelection = Boolean(activeGoogle?.taskLists.some((l) => l.selected));
 
   return (
     <>
       <h1>Set up Scholar AI</h1>
+      <GoogleCallbackNotice google={google} reason={reason} />
       <ol className="steps stack">
         <li>
           <section className="card" aria-labelledby="tz-heading">
@@ -31,48 +34,7 @@ export default async function OnboardingPage() {
         <li>
           <section className="card" aria-labelledby="gt-heading">
             <h2 id="gt-heading">Connect Google Tasks</h2>
-            {activeGoogle ? (
-              <div className="stack">
-                <SyncStatus
-                  timezone={profile.timezone}
-                  mode={activeGoogle.mode}
-                  status={activeGoogle.status}
-                  freshness={activeGoogle.freshness}
-                  lastAttemptAt={activeGoogle.lastAttemptAt}
-                  lastSuccessAt={activeGoogle.lastSuccessAt}
-                  lastErrorCode={activeGoogle.lastErrorCode}
-                  activeJobStatus={activeGoogle.activeJob?.status ?? null}
-                />
-                <p className="small">
-                  Granted capability:{" "}
-                  <strong>
-                    {mock ? "read synthetic fixtures (mock)" : "read-only task access"}
-                  </strong>
-                  . Scholar AI cannot change your tasks.
-                </p>
-                {activeGoogle.taskLists.length > 0 ? (
-                  <ListSelectionForm
-                    integrationId={activeGoogle.id}
-                    lists={activeGoogle.taskLists}
-                  />
-                ) : (
-                  <p className="muted small">Waiting for the first sync to discover your lists…</p>
-                )}
-              </div>
-            ) : mock ? (
-              <div className="stack">
-                <p className="small">
-                  Mock mode connects a labelled fixture adapter with synthetic coursework. It never
-                  contacts Google.
-                </p>
-                <ConnectTasksButton mock />
-              </div>
-            ) : (
-              <p className="notice">
-                Live Google Tasks connection is not implemented in this build (Phase 2). Nothing has
-                been connected.
-              </p>
-            )}
+            <GoogleTasksConnection state={state} returnTo="/onboarding" showDisconnect={false} />
           </section>
         </li>
         <li>

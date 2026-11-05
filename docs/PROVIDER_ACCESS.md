@@ -1,17 +1,17 @@
 # Provider Access Checklist and Scope Inventory
 
-Status as of 2026-11-04. Update this file whenever a gate changes. Mock mode passing is **not**
+Status as of 2026-11-05. Update this file whenever a gate changes. Mock mode passing is **not**
 evidence that any provider granted access.
 
 ## Gate status
 
-| #   | Prerequisite (SCHOLAR_AI_PLAN.md §3)                                    | Status                                            | Owner action needed                                                                                                          |
-| --- | ----------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Google Cloud project, Tasks API enabled, OAuth consent + redirects      | **Not started**                                   | Create project; configure consent screen (External, Testing), add yourself as test user, register redirect URIs below        |
-| 2   | Canvas developer key, institution base URL, scoped endpoints, redirects | **Not established** — Canvas availability unknown | Ask the institution's Canvas administrator whether they will issue a scoped developer key. If not, Phase 3 ships manual mode |
-| 3   | AI API credential, model ID, spend limits                               | **Not started**                                   | Provision an Anthropic API key for the app (a Claude Code subscription is not one)                                           |
-| 4   | Node.js LTS, PostgreSQL, locked package versions                        | **Done**                                          | — (see [STACK.md](STACK.md))                                                                                                 |
-| 5   | Production URL, host, secret store, encrypted backups, worker model     | **Not started**                                   | Decide in Phase 7; nothing is deployed without owner approval                                                                |
+| #   | Prerequisite (SCHOLAR_AI_PLAN.md §3)                                    | Status                                                                                                                                                                                                   | Owner action needed                                                                                                          |
+| --- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Google Cloud project, Tasks API enabled, OAuth consent + redirects      | **In progress (owner)** — project `scholar-ai-dev` and its OAuth configuration created 2026-11-04 (seen in a screenshot); Tasks API enablement, test user, scopes and the OAuth client not yet confirmed | Finish §0 of [GOOGLE_SMOKE_TEST.md](GOOGLE_SMOKE_TEST.md), then run the smoke test                                           |
+| 2   | Canvas developer key, institution base URL, scoped endpoints, redirects | **Not established** — Canvas availability unknown                                                                                                                                                        | Ask the institution's Canvas administrator whether they will issue a scoped developer key. If not, Phase 3 ships manual mode |
+| 3   | AI API credential, model ID, spend limits                               | **Not started**                                                                                                                                                                                          | Provision an Anthropic API key for the app (a Claude Code subscription is not one)                                           |
+| 4   | Node.js LTS, PostgreSQL, locked package versions                        | **Done**                                                                                                                                                                                                 | — (see [STACK.md](STACK.md))                                                                                                 |
+| 5   | Production URL, host, secret store, encrypted backups, worker model     | **Not started**                                                                                                                                                                                          | Decide in Phase 7; nothing is deployed without owner approval                                                                |
 
 **Canvas availability (recorded explicitly, per the M0 gate):** _not established_. The
 institution hostname is unknown (`yourschool.instructure.com` in the original conversation was
@@ -31,12 +31,13 @@ applications.
 
 Redirect URI: `{APP_URL}/api/auth/callback/google`. No Tasks scope is ever requested at sign-in.
 
-### Google — Tasks integration (Phase 2, not implemented)
+### Google — Tasks integration (implemented in Phase 2; live gate pending)
 
-| Scope                                            | When                                                            |
-| ------------------------------------------------ | --------------------------------------------------------------- |
-| `https://www.googleapis.com/auth/tasks.readonly` | On "Connect Google Tasks" (separate grant)                      |
-| `https://www.googleapis.com/auth/tasks`          | Only on explicit upgrade for approved task completion (Phase 6) |
+| Scope                                            | When                                                                               |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `openid`                                         | With the Tasks grant, to identify which Google account was connected (`sub`)       |
+| `https://www.googleapis.com/auth/tasks.readonly` | On "Connect Google Tasks" (separate grant, `include_granted_scopes=false`)         |
+| `https://www.googleapis.com/auth/tasks`          | **Not requested.** Only on explicit upgrade for approved task completion (Phase 6) |
 
 Redirect URI: `{APP_URL}/api/v1/integrations/google/callback`. Offline access is required for
 background sync. **Known constraint:** for External apps in Testing status, refresh tokens for

@@ -57,8 +57,9 @@ meaningfully verified by driving data through them end to end.
 - [x] API v1 subset with `{data, requestId}` envelope, origin-based CSRF check, rate limits
 - [x] Health endpoint (DB + worker heartbeat, no user data)
 - [x] Provider access checklist with Canvas availability explicitly recorded
-- [~] CI workflow (format, lint, type-check, unit, integration, e2e, build) — written; first
-  GitHub run is on the Phase 1 pull request against `main`; mark done only once it is green
+- [x] CI workflow (format, lint, type-check, unit, integration, e2e, build) — green on PR #1
+      head `c1c031d` (Actions run 41936011925) after fixing a job-wide `NODE_ENV` that broke
+      `next build`
 
 ### M0 completion gate
 
@@ -106,18 +107,62 @@ JSON body (library default; cookie remains HttpOnly).
 
 ## Phase 2 — M1: secure read-only Google Tasks
 
-- [ ] Google OAuth authorization-code flow for Tasks (`tasks.readonly`), separate from sign-in
-- [ ] Single-use, expiring OAuth state bound to provider + session + host; PKCE; exact redirects
-- [ ] Authenticated envelope encryption for tokens (`packages/security`), key ID, rotation path
-- [ ] Preserve existing refresh token when a response omits one; serialized refresh per connection
-- [ ] Live `GoogleTasksClient` implementing the Phase 1 interface; `updatedMin` overlap window
-- [ ] Retry classification for 429/5xx; refresh-once on auth failure; reconnect state
-- [ ] Disconnect erases tokens and attempts revocation, reporting the real result
-- [ ] Testing-mode refresh-token expiry (≈7 days) surfaced in UI and docs
+Built on branch `claude/phase-2-google-tasks` (stacked on Phase 1). Everything below is verified
+against a labelled **fake Google** (`packages/testing/src/fake-google.ts`) through the
+production code paths; the live-account gate is still open.
 
-Gate: real-account smoke test imports expected tasks with no writes; date-only due dates
-unchanged across timezones; two-user isolation passes. **Requires:** Google Cloud project,
-OAuth client, consent screen, test user (owner action).
+- [x] Google OAuth authorization-code flow for Tasks: `openid` + `tasks.readonly` only, separate
+      grant from sign-in (`include_granted_scopes=false`), no write scope requested
+- [x] Single-use, 10-minute OAuth state bound to user + session + provider + app origin +
+      redirect URI; only its hash is stored; atomic consume (replays fail); PKCE S256 with the
+      verifier sealed at rest
+- [x] Envelope encryption (`packages/security/src/envelope.ts`): per-record AES-256-GCM data key
+      wrapped by a root key with a key ID; AAD binds tokens to integration + user;
+      `TOKEN_ENCRYPTION_PREVIOUS_KEYS` + `reseal` for rotation
+- [x] Existing refresh token preserved when Google omits one; refresh serialized per connection
+      with a row lock (concurrent workers → exactly one refresh); rotated refresh tokens persisted
+- [x] Live `LiveGoogleTasksClient` on the Phase 1 interface: fixed host, no redirects, bearer
+      token, `updatedMin` overlap window via the existing sync policy
+- [x] Error classification: 429/5xx/network → retryable (honours `Retry-After`); 401 → one
+      refresh then auth failure; `invalid_grant` → credentials erased + `needs_reconnect`;
+      Tasks API disabled → explicit, non-retried `google_tasks_api_disabled`
+- [x] Disconnect erases tokens in the same transaction as disabling sync, then attempts
+      revocation and records `revoked` / `failed` / `no_credentials` truthfully (UI says so)
+- [x] Testing-mode refresh-token expiry (≈7 days) explained in the connect UI and handled as
+      `invalid_grant` → reconnect prompt
+- [x] Live and mock never mix: connecting a real account retires mock connections and their
+      synthetic data; the worker refuses mock-in-live and live-in-mock
+- [ ] **Live smoke test on the owner's Google account — BLOCKED (owner action):** see
+      [`GOOGLE_SMOKE_TEST.md`](GOOGLE_SMOKE_TEST.md)
+
+### M1 completion gate
+
+| Gate                                                      | Status  | Evidence                                                                                |
+| --------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------- |
+| Real-account smoke test imports expected tasks, no writes | BLOCKED | Needs the owner's OAuth client + consent; checklist in `GOOGLE_SMOKE_TEST.md`           |
+| Date-only due dates unchanged across timezones            | [~]     | Unit + integration + e2e on fixtures (A04); live confirmation is part of the smoke test |
+| Two-user isolation                                        | [x]     | Integration `isolation.test.ts`, e2e `journey.spec.ts`; OAuth states reject other users |
+
+### Acceptance cases added in Phase 2 (fake Google)
+
+| ID  | Coverage now                                                                                   |
+| --- | ---------------------------------------------------------------------------------------------- |
+| A02 | Missing, forged, replayed, expired, cross-session, cross-user, cross-origin states rejected    |
+| A03 | Only `tasks.readonly` is requested/stored; no non-GET Tasks call exists (write grant: Phase 6) |
+| A07 | 6 concurrent refreshers → 1 refresh; rotated refresh token persisted; `invalid_grant` terminal |
+| A20 | Live client: 429 with `Retry-After`, 5xx and network errors retryable                          |
+| A26 | Disconnect erases credentials immediately, cancels jobs, reports revocation truthfully         |
+
+### Phase 2 verification log (2026-11-05, local container, PostgreSQL 16)
+
+| Check                                             | Result                                                         |
+| ------------------------------------------------- | -------------------------------------------------------------- |
+| `npm run lint` / `type-check` / `format:check`    | pass                                                           |
+| `npm test` (unit)                                 | 65 passed                                                      |
+| `npm run test:integration`                        | 50 passed                                                      |
+| `npm run test:e2e` (mock mode)                    | 13 passed                                                      |
+| Web boot in live mode with dummy credentials      | starts; callback → sign-in when anonymous; demo login disabled |
+| Live connect UI / consent round trip in a browser | **not tested** (requires a real Google sign-in)                |
 
 ## Phase 3 — M2: Canvas context and manual fallback
 
@@ -165,6 +210,7 @@ effects; prompt-injection fixtures grant no authority.
 
 ## Change log
 
-| Date       | Change                                         |
-| ---------- | ---------------------------------------------- |
-| 2026-11-04 | Plan created; Phase 1 implemented (mock mode). |
+| Date       | Change                                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 2026-11-04 | Plan created; Phase 1 implemented (mock mode).                                                                         |
+| 2026-11-05 | Phase 1 CI green. Phase 2 (M1) implemented and verified against a fake Google; live smoke test blocked on owner setup. |

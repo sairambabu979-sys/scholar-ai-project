@@ -11,11 +11,12 @@ export function DisconnectButton({ integrationId }: { integrationId: string }) {
 
   async function disconnect() {
     try {
-      await apiFetch(`/integrations/${integrationId}`, {
+      const r = await apiFetch<{ revocation: string }>(`/integrations/${integrationId}`, {
         method: "DELETE",
         body: { deleteCachedData: deleteCached },
       });
-      setStatus("Disconnected");
+      // The button disappears once disconnected; carry the outcome to a page-level notice.
+      router.push(`/settings?disconnected=${encodeURIComponent(r.revocation)}`);
       router.refresh();
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Could not disconnect");

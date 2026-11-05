@@ -1,10 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import {
-  disconnectIntegration,
-  enqueueJob,
-  GOOGLE_TASKS_SYNC_JOB,
-  syncDedupeKey,
-} from "@scholar/db";
+import { enqueueJob, GOOGLE_TASKS_SYNC_JOB, syncDedupeKey } from "@scholar/db";
 import {
   buildMockGoogleTasksDataset,
   FixedClock,
@@ -19,6 +14,7 @@ import {
   resetDatabase,
   silentLogger,
   testDb,
+  disconnect,
 } from "../support/db-helpers.ts";
 
 const db = testDb();
@@ -48,10 +44,7 @@ describe("disconnect during sync (A26)", () => {
     client.listTasks = async (...args) => {
       const page = await original(...args);
       if (++served === 1) {
-        await disconnectIntegration(db, user.id, integration.id, {
-          deleteCachedData: false,
-          now: clock.now(),
-        });
+        await disconnect(db, user.id, integration.id, false, clock.now());
       }
       return page;
     };
@@ -85,10 +78,7 @@ describe("disconnect during sync (A26)", () => {
       payload: { integrationId: integration.id, trigger: "manual" },
       runAt: clock.now(),
     });
-    const r = await disconnectIntegration(db, user.id, integration.id, {
-      deleteCachedData: true,
-      now: clock.now(),
-    });
+    const r = await disconnect(db, user.id, integration.id, true, clock.now());
     expect(r?.jobs.cancelled).toBe(1);
     expect(r?.revocation).toBe("not_applicable");
     expect((await db.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe("cancelled");

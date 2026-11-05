@@ -1,4 +1,5 @@
 import { createPrismaClient, type Db } from "@scholar/db";
+import { disconnectIntegrationWithRevocation } from "@scholar/services";
 import { createLogger } from "@scholar/security";
 import { testDatabaseUrl } from "./test-db.ts";
 
@@ -9,7 +10,8 @@ export function testDb(): Db {
 /** Wipe all application tables (test database only). */
 export async function resetDatabase(db: Db): Promise<void> {
   await db.$executeRawUnsafe(`
-    TRUNCATE TABLE audit_events, jobs, sync_cursors, sync_runs, tasks, task_lists, integrations,
+    TRUNCATE TABLE audit_events, jobs, oauth_states, token_envelopes, sync_cursors, sync_runs,
+      tasks, task_lists, integrations,
       preferences, sessions, auth_accounts, verifications, worker_heartbeats, users
     RESTART IDENTITY CASCADE`);
 }
@@ -34,3 +36,22 @@ export async function createMockIntegration(db: Db, userId: string, anchorDate =
 }
 
 export const silentLogger = createLogger({}, "error", () => undefined);
+
+/** A fetch that fails the test if anything tries to reach the network. */
+export const noNetwork = async (url: string): Promise<Response> => {
+  throw new Error(`unexpected network call to ${new URL(url).host}`);
+};
+
+/** Disconnect through the production code path (mock integrations: no network, no keyring). */
+export function disconnect(
+  db: Db,
+  userId: string,
+  integrationId: string,
+  deleteCachedData: boolean,
+  now = new Date(),
+) {
+  return disconnectIntegrationWithRevocation(
+    { db, keyring: null, fetch: noNetwork, clock: { now: () => now } },
+    { userId, integrationId, deleteCachedData },
+  );
+}

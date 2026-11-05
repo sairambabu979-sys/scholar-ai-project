@@ -1,0 +1,19 @@
+{
+  "name": "@scholar/services",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type-check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scholar/config": "*",
+    "@scholar/db": "*",
+    "@scholar/domain": "*",
+    "@scholar/integrations": "*",
+    "@scholar/security": "*"
+  }
+}

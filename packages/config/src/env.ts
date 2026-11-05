@@ -39,8 +39,15 @@ const rawSchema = z.object({
   CANVAS_CLIENT_ID: optionalString,
   CANVAS_CLIENT_SECRET: optionalString,
   CANVAS_REDIRECT_URI: optionalString,
-  TOKEN_KEY_ID: z.preprocess(emptyToUndefined, z.string().default("local-v1")),
+  TOKEN_KEY_ID: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/, { error: "TOKEN_KEY_ID must match [A-Za-z0-9_-]{1,64}" })
+      .default("local-v1"),
+  ),
   TOKEN_ENCRYPTION_KEY_BASE64: optionalString,
+  TOKEN_ENCRYPTION_PREVIOUS_KEYS: optionalString,
   AI_PROVIDER: z.preprocess(emptyToUndefined, z.enum(["anthropic"]).default("anthropic")),
   ANTHROPIC_API_KEY: optionalString,
   AI_MODEL: optionalString,
@@ -78,8 +85,13 @@ export interface AppEnv {
     clientSecret?: string;
     redirectUri?: string;
   };
-  tokenKeyId: string;
-  tokenEncryptionKeyConfigured: boolean;
+  tokenEncryption: {
+    keyId: string;
+    /** Root key for token envelopes. Sensitive: never log. */
+    keyBase64?: string;
+    /** `keyId:base64,...` keys kept only to decrypt during rotation. */
+    previousKeys?: string;
+  };
   ai: { provider: "anthropic"; apiKeyConfigured: boolean; model?: string; dailyLimitUsd: number };
   syncIntervalSeconds: number;
   integrationsMode: IntegrationsMode;
@@ -145,6 +157,20 @@ export function parseEnv(raw: Record<string, string | undefined>): ParsedEnv {
     const bytes = Buffer.from(r.TOKEN_ENCRYPTION_KEY_BASE64, "base64");
     if (bytes.length !== 32) issues.push("TOKEN_ENCRYPTION_KEY_BASE64 must decode to 32 bytes");
   }
+  for (const entry of (r.TOKEN_ENCRYPTION_PREVIOUS_KEYS ?? "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean)) {
+    const i = entry.indexOf(":");
+    const id = i > 0 ? entry.slice(0, i) : "";
+    if (
+      !/^[A-Za-z0-9_-]{1,64}$/.test(id) ||
+      Buffer.from(entry.slice(i + 1), "base64").length !== 32
+    ) {
+      issues.push("TOKEN_ENCRYPTION_PREVIOUS_KEYS entries must be keyId:base64-of-32-bytes");
+      break;
+    }
+  }
 
   const authAllowedEmails = (r.AUTH_ALLOWED_EMAILS ?? "")
     .split(",")
@@ -163,6 +189,15 @@ export function parseEnv(raw: Record<string, string | undefined>): ParsedEnv {
     issues.push(
       "INTEGRATIONS_MODE=live requires GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET (demo sign-in is mock-only)",
     );
+  }
+  if (r.INTEGRATIONS_MODE === "live") {
+    // Live Google Tasks connections store encrypted credentials and use the Tasks callback.
+    if (!r.TOKEN_ENCRYPTION_KEY_BASE64) {
+      issues.push("INTEGRATIONS_MODE=live requires TOKEN_ENCRYPTION_KEY_BASE64 (token envelopes)");
+    }
+    if (!r.GOOGLE_TASKS_REDIRECT_URI) {
+      issues.push("INTEGRATIONS_MODE=live requires GOOGLE_TASKS_REDIRECT_URI");
+    }
   }
   if (Boolean(r.GOOGLE_CLIENT_ID) !== Boolean(r.GOOGLE_CLIENT_SECRET)) {
     issues.push("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together");
@@ -240,8 +275,11 @@ export function parseEnv(raw: Record<string, string | undefined>): ParsedEnv {
       clientSecret: r.CANVAS_CLIENT_SECRET,
       redirectUri: r.CANVAS_REDIRECT_URI,
     },
-    tokenKeyId: r.TOKEN_KEY_ID,
-    tokenEncryptionKeyConfigured: Boolean(r.TOKEN_ENCRYPTION_KEY_BASE64),
+    tokenEncryption: {
+      keyId: r.TOKEN_KEY_ID,
+      keyBase64: r.TOKEN_ENCRYPTION_KEY_BASE64,
+      previousKeys: r.TOKEN_ENCRYPTION_PREVIOUS_KEYS,
+    },
     ai: {
       provider: r.AI_PROVIDER,
       apiKeyConfigured: Boolean(r.ANTHROPIC_API_KEY),
