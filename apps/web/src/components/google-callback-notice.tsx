@@ -1,4 +1,16 @@
-/** Explains the outcome of the Google consent round trip (`?google=…&reason=…`). */
+const CANVAS_REASONS: Record<string, string> = {
+  denied: "You declined access in Canvas. Nothing was connected.",
+  token_exchange_failed:
+    "Canvas did not accept the connection. The developer key settings may not match.",
+  identity_missing: "Canvas did not say which account was connected. Nothing was stored.",
+  different_account:
+    "Another Canvas account is already connected. Disconnect it in Settings first.",
+  missing_refresh_token:
+    "Canvas did not provide long-lived access, so background sync would stop. Nothing was stored.",
+  not_configured: "Canvas is not configured on this server.",
+};
+
+/** Explains the outcome of a Google/Canvas consent round trip (`?google=…` / `?canvas=…`). */
 const REASONS: Record<string, string> = {
   denied: "You declined access in Google. Nothing was connected.",
   scope_not_granted:
@@ -18,7 +30,31 @@ const REASONS: Record<string, string> = {
   invalid_request: "The response from Google was incomplete. Try again.",
 };
 
-export function GoogleCallbackNotice({ google, reason }: { google?: string; reason?: string }) {
+export function GoogleCallbackNotice({
+  google,
+  canvas,
+  reason,
+}: {
+  google?: string;
+  canvas?: string;
+  reason?: string;
+}) {
+  if (canvas === "connected") {
+    return (
+      <p className="notice" role="status" data-testid="canvas-callback">
+        Canvas connected (read-only). Courses and assignments are importing now.
+      </p>
+    );
+  }
+  if (canvas === "error") {
+    return (
+      <p className="notice error" role="alert" data-testid="canvas-callback">
+        {CANVAS_REASONS[reason ?? ""] ??
+          REASONS[reason ?? ""] ??
+          "The Canvas connection did not complete. Try again."}
+      </p>
+    );
+  }
   if (google === "connected") {
     return (
       <p className="notice" role="status" data-testid="google-callback">

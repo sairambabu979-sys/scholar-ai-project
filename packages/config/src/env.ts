@@ -39,6 +39,8 @@ const rawSchema = z.object({
   CANVAS_CLIENT_ID: optionalString,
   CANVAS_CLIENT_SECRET: optionalString,
   CANVAS_REDIRECT_URI: optionalString,
+  /** Space- or comma-separated Canvas scopes; must match the developer key's enabled scopes. */
+  CANVAS_SCOPES: optionalString,
   TOKEN_KEY_ID: z.preprocess(
     emptyToUndefined,
     z
@@ -80,6 +82,10 @@ export interface AppEnv {
   };
   canvas: {
     enabled: boolean;
+    /** Normalized approved origin (set only when CANVAS_ENABLED and valid). */
+    origin?: string;
+    /** Explicit scopes; empty means the built-in read-only defaults. */
+    scopes: string[];
     baseUrl?: string;
     clientId?: string;
     clientSecret?: string;
@@ -213,24 +219,47 @@ export function parseEnv(raw: Record<string, string | undefined>): ParsedEnv {
   }
 
   // --- Canvas ----------------------------------------------------------------------------
+  let canvasOrigin: string | undefined;
   if (r.CANVAS_ENABLED) {
     let validBase = false;
     if (r.CANVAS_BASE_URL) {
       try {
         const u = new URL(r.CANVAS_BASE_URL);
         validBase =
-          u.protocol === "https:" && (u.pathname === "/" || u.pathname === "") && !u.search;
+          u.protocol === "https:" &&
+          (u.pathname === "/" || u.pathname === "") &&
+          !u.search &&
+          !u.hash &&
+          !u.username &&
+          !u.password &&
+          (u.port === "" || u.port === "443") &&
+          u.hostname.includes(".") &&
+          !/^[\d.]+$|^\[/.test(u.hostname);
+        if (validBase) canvasOrigin = u.origin;
       } catch {
         validBase = false;
       }
     }
-    if (!validBase) issues.push("CANVAS_ENABLED=true requires CANVAS_BASE_URL as an https origin");
+    if (!validBase) {
+      issues.push(
+        "CANVAS_ENABLED=true requires CANVAS_BASE_URL as an https origin with a DNS hostname (no path, credentials, IP or custom port)",
+      );
+    }
     if (!r.CANVAS_CLIENT_ID || !r.CANVAS_CLIENT_SECRET) {
       issues.push("CANVAS_ENABLED=true requires CANVAS_CLIENT_ID and CANVAS_CLIENT_SECRET");
     }
-    warnings.push(
-      "CANVAS_ENABLED=true but the Canvas integration is not implemented in this build",
-    );
+    if (!r.CANVAS_REDIRECT_URI) issues.push("CANVAS_ENABLED=true requires CANVAS_REDIRECT_URI");
+    if (!r.TOKEN_ENCRYPTION_KEY_BASE64)
+      issues.push("CANVAS_ENABLED=true requires TOKEN_ENCRYPTION_KEY_BASE64");
+    if (r.INTEGRATIONS_MODE === "mock") {
+      warnings.push(
+        "CANVAS_ENABLED=true is ignored in mock mode; the synthetic Canvas adapter is used",
+      );
+    }
+  }
+  const canvasScopes = (r.CANVAS_SCOPES ?? "").split(/[\s,]+/).filter(Boolean);
+  if (canvasScopes.some((sc) => !/^url:GET\|\/api\/v1\/[A-Za-z0-9_:/.-]+$/.test(sc))) {
+    issues.push("CANVAS_SCOPES may only contain read-only url:GET|/api/v1/... scopes");
   }
 
   // --- production hardening --------------------------------------------------------------
@@ -274,6 +303,8 @@ export function parseEnv(raw: Record<string, string | undefined>): ParsedEnv {
       clientId: r.CANVAS_CLIENT_ID,
       clientSecret: r.CANVAS_CLIENT_SECRET,
       redirectUri: r.CANVAS_REDIRECT_URI,
+      origin: canvasOrigin,
+      scopes: canvasScopes,
     },
     tokenEncryption: {
       keyId: r.TOKEN_KEY_ID,

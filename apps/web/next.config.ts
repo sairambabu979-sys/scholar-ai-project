@@ -36,7 +36,7 @@ const nextConfig: NextConfig = {
     "@scholar/security",
     "@scholar/services",
   ],
-  serverExternalPackages: ["pg"],
+  serverExternalPackages: ["pg", "undici"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

@@ -21,8 +21,14 @@ scope. Tokens are stored with envelope encryption, refreshed with one refresh pe
 and erased + revoked on disconnect. To run it yourself, follow
 [`docs/GOOGLE_SMOKE_TEST.md`](docs/GOOGLE_SMOKE_TEST.md).
 
-Not built yet (and never faked): Canvas, AI assistance, approvals, study tools, task
-completion, export/deletion, deployment. See
+**Phase 3 (Canvas context, read-only)** — implemented and tested against synthetic data and a
+fake Canvas server. Link a task to its Canvas assignment (exact URL or a suggestion you
+confirm), see the description as safe plain text, your own submission state, and the
+effective deadline with its source. Without an institution-approved developer key, live mode
+shows "Canvas connection unavailable" and you add assignment details by hand.
+
+Not built yet (and never faked): AI assistance, approvals, study tools, task completion,
+export/deletion, deployment. See
 [`docs/PROVIDER_ACCESS.md`](docs/PROVIDER_ACCESS.md) for the external prerequisites.
 
 ## Quick start (local, mock mode)

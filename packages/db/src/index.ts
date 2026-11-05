@@ -11,5 +11,10 @@ export type {
   SyncRun,
   SyncCursor,
   User,
+  Course,
+  Assignment,
+  TaskLink,
+  ManualContext,
 } from "./generated/prisma/client.ts";
 export * from "./demo-users.ts";
+export * from "./canvas-repos.ts";

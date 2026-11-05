@@ -4,6 +4,7 @@
  * instances running this concurrently still enqueue at most one active job per integration.
  */
 import {
+  CANVAS_SYNC_JOB,
   enqueueJob,
   GOOGLE_TASKS_SYNC_JOB,
   listIntegrationsForScheduling,
@@ -34,7 +35,7 @@ export async function scheduleDueSyncs(deps: {
     if (!due) continue;
     const r = await enqueueJob(deps.db, {
       userId: c.userId,
-      kind: GOOGLE_TASKS_SYNC_JOB,
+      kind: c.provider === "canvas" ? CANVAS_SYNC_JOB : GOOGLE_TASKS_SYNC_JOB,
       dedupeKey: syncDedupeKey(c.id),
       payload: { integrationId: c.id, trigger: "scheduled" },
       runAt: now,

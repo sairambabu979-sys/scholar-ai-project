@@ -5,10 +5,11 @@ import { fileURLToPath } from "node:url";
 import { loadEnvFiles } from "@scholar/config/load-env";
 import { ConfigError, getEnv } from "@scholar/config";
 import { createPrismaClient } from "@scholar/db";
-import { googleTasksOAuthFromEnv, keyringFromEnv } from "@scholar/services";
+import { canvasOAuthFromEnv, googleTasksOAuthFromEnv, keyringFromEnv } from "@scholar/services";
+import { createGuardedFetch } from "@scholar/security";
 import { systemClock } from "@scholar/domain";
 import { createLogger } from "@scholar/security";
-import { createGoogleTasksClientFactory } from "./client-factory.ts";
+import { createCanvasClientFactory, createGoogleTasksClientFactory } from "./client-factory.ts";
 import { recoverLeases, runOnce } from "./runner.ts";
 import { scheduleDueSyncs } from "./scheduler.ts";
 
@@ -41,6 +42,20 @@ const clientFor = createGoogleTasksClientFactory({
       ? { db, keyring, fetch: (url, init) => fetch(url, init), oauth }
       : undefined,
 });
+const canvasOAuth = canvasOAuthFromEnv(env);
+const canvasClientFor = createCanvasClientFactory({
+  integrationsMode: env.integrationsMode,
+  clock,
+  live:
+    canvasOAuth && keyring
+      ? {
+          db,
+          keyring,
+          oauth: canvasOAuth,
+          fetch: createGuardedFetch({ allowedOrigins: [canvasOAuth.origin] }),
+        }
+      : undefined,
+});
 const startedAt = clock.now();
 
 let stopping = false;
@@ -58,7 +73,7 @@ async function loop() {
   let idleMs = 500;
   while (!stopping) {
     try {
-      const outcome = await runOnce({ db, clock, logger, workerId, clientFor });
+      const outcome = await runOnce({ db, clock, logger, workerId, clientFor, canvasClientFor });
       if (outcome === "idle") {
         await new Promise((r) => setTimeout(r, idleMs));
         idleMs = Math.min(idleMs * 2, 5_000);

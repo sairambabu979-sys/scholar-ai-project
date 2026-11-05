@@ -10,7 +10,11 @@ test("student connects mock Tasks, imports a list, and sees a persisted dashboar
   const page = await pageAs(browser, testInfo, ALICE_STATE);
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/onboarding$/);
-  await expect(page.getByTestId("canvas-unavailable")).toBeVisible();
+  // Mock mode offers only the clearly labelled synthetic Canvas (live mode without an
+  // institution key shows "Canvas connection unavailable" instead).
+  await expect(
+    page.getByRole("button", { name: "Connect mock Canvas (synthetic data)" }),
+  ).toBeVisible();
   await onboard(page);
 
   await expect(page.getByTestId("mock-banner")).toBeVisible();

@@ -45,7 +45,14 @@ export default defineConfig({
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
       dependencies: ["setup"],
-      testIgnore: /responsive\.spec\.ts/,
+      testIgnore: /(responsive|canvas)\.spec\.ts/,
+    },
+    {
+      // Runs after the main journeys, as the student who has already imported tasks.
+      name: "canvas",
+      use: { ...devices["Desktop Chrome"] },
+      dependencies: ["chromium"],
+      testMatch: /canvas\.spec\.ts/,
     },
     {
       name: "mobile",

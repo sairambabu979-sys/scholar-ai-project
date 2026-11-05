@@ -166,16 +166,65 @@ production code paths; the live-account gate is still open.
 
 ## Phase 3 — M2: Canvas context and manual fallback
 
-- [ ] Configured-host Canvas OAuth (if the institution grants a developer key)
-- [ ] URL policy: HTTPS only, DNS resolution with private/loopback/link-local/metadata denial
-      (IPv4 + IPv6), revalidated on redirects and `Link` pagination; no token forwarding
-- [ ] Courses, assignments, own submission metadata, effective due dates; HTML sanitization
-- [ ] Task ↔ assignment matching (explicit URL or user-confirmed suggestion only)
-- [ ] Manual context entry; "Canvas connection unavailable" state
-- [ ] Exact Canvas scope inventory recorded in `PROVIDER_ACCESS.md`
+Built on branch `claude/phase-3-canvas` (stacked on Phase 2). Verified against synthetic Canvas
+data (`packages/testing/src/canvas-fixtures.ts`) and a labelled **fake Canvas** HTTP server
+(`fake-canvas.ts`). **Canvas availability is still not established** — no institution developer
+key exists — so the live gate is open and the shipped mode for a real deployment today is
+**manual mode**.
 
-Gate: fixtures pass; live allowed account validates dates/access; no Canvas write calls exist.
-If OAuth is blocked, ship manual mode labelled as such.
+- [x] Configured-host Canvas OAuth (`canvas-connection.ts`): shared single-use OAuth state, PKCE,
+      read-only `url:GET|…` scopes only (config refuses others), tokens sealed with
+      provider-bound AAD, serialized refresh, honest revocation (`DELETE /login/oauth2/token`)
+- [x] URL policy (`packages/security`): https-only bare origins with DNS hostnames; connect-time
+      DNS validation refusing loopback/private/link-local/metadata/CGNAT/ULA/multicast/NAT64/
+      6to4/Teredo/IPv4-mapped answers (any bad answer refuses the connection — rebinding
+      defence); no redirects; every `Link` pagination URL re-checked against the approved origin
+      before the token is attached
+- [x] Courses, assignments, the student's own submission state (no scores, no class data),
+      student-effective dates; descriptions converted to restricted plain text (scripts,
+      frames, forms and images removed; only https links kept); `include[]=read_status` refused
+- [x] Missing records become `available = false`, never deleted (may be access loss); course
+      404 mid-sync is treated as access loss; staged per-course commits
+- [x] Task ↔ assignment matching: exact approved-host URL, or ranked suggestions with reasons
+      (course code is a boost, never sufficient; conflicting numbers rule a candidate out);
+      nothing links without a click that also carries the reviewed task version (409 if stale)
+- [x] Manual assignment details (versioned, https sources displayed never fetched, due-date
+      override) and the "Canvas connection unavailable" state in live mode without a key
+- [x] Effective deadline precedence with provenance and visible disagreements on the
+      dashboard and task page
+- [x] Canvas scope inventory recorded in `PROVIDER_ACCESS.md`
+- [ ] **Live Canvas validation — BLOCKED (institution):** needs a developer key, the exact base
+      URL, and the scopes it enables
+
+### M2 completion gate
+
+| Gate                                            | Status  | Evidence                                                                        |
+| ----------------------------------------------- | ------- | ------------------------------------------------------------------------------- |
+| Official-shape fixtures pass                    | [x]     | `canvas-sync`, `canvas-live`, `linking` integration tests; `canvas.spec.ts` e2e |
+| Live allowed account validates dates/access     | BLOCKED | No institution developer key                                                    |
+| No Canvas write calls exist                     | [x]     | Client has only GET listing methods; tests assert every API call is `GET`       |
+| If OAuth is blocked, manual mode ships labelled | [x]     | Live mode without a key shows "Canvas connection unavailable" + manual details  |
+
+### Acceptance cases added in Phase 3
+
+| ID  | Coverage now                                                                                       |
+| --- | -------------------------------------------------------------------------------------------------- |
+| A08 | No Canvas: honest unavailable state; manual details usable and versioned (integration + e2e)       |
+| A09 | Canvas override vs Google date: Canvas wins with provenance, disagreement shown (all three levels) |
+| A10 | Ambiguous titles → several reasoned suggestions; no automatic link (unit + integration + e2e)      |
+| A15 | Script/iframe/javascript:/tracking image stripped; internal addresses refused (unit + integration) |
+| A16 | Foreign `Link` next URL and forged continuations refused before any token is sent (unit + integ.)  |
+
+### Phase 3 verification log (2026-11-05, local container, PostgreSQL 16)
+
+| Check                                          | Result                                                                                                |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `npm run lint` / `type-check` / `format:check` | pass                                                                                                  |
+| `npm test` (unit)                              | 92 passed                                                                                             |
+| `npm run test:integration`                     | 69 passed                                                                                             |
+| `npm run test:e2e` (mock mode)                 | 18 passed in 2 consecutive runs; 1 earlier run hit a dev-server reload loop in setup (not reproduced) |
+| `npm run build`                                | pass                                                                                                  |
+| Live-mode "Canvas unavailable" page in browser | **not tested** (needs a real Google sign-in in live mode)                                             |
 
 ## Phase 4 — M3: approval engine and assistance artifacts
 
@@ -210,7 +259,8 @@ effects; prompt-injection fixtures grant no authority.
 
 ## Change log
 
-| Date       | Change                                                                                                                 |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------- |
-| 2026-11-04 | Plan created; Phase 1 implemented (mock mode).                                                                         |
-| 2026-11-05 | Phase 1 CI green. Phase 2 (M1) implemented and verified against a fake Google; live smoke test blocked on owner setup. |
+| Date       | Change                                                                                                                        |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 2026-11-04 | Plan created; Phase 1 implemented (mock mode).                                                                                |
+| 2026-11-05 | Phase 1 CI green. Phase 2 (M1) implemented and verified against a fake Google; live smoke test blocked on owner setup.        |
+| 2026-11-05 | Phase 2 CI green. Phase 3 (M2) implemented against synthetic + fake Canvas; live Canvas blocked on institution developer key. |
