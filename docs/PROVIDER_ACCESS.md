@@ -5,19 +5,25 @@ evidence that any provider granted access.
 
 ## Gate status
 
-| #   | Prerequisite (SCHOLAR_AI_PLAN.md §3)                                    | Status                                                                                                                                                                                                   | Owner action needed                                                                                                          |
-| --- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Google Cloud project, Tasks API enabled, OAuth consent + redirects      | **In progress (owner)** — project `scholar-ai-dev` and its OAuth configuration created 2026-11-04 (seen in a screenshot); Tasks API enablement, test user, scopes and the OAuth client not yet confirmed | Finish §0 of [GOOGLE_SMOKE_TEST.md](GOOGLE_SMOKE_TEST.md), then run the smoke test                                           |
-| 2   | Canvas developer key, institution base URL, scoped endpoints, redirects | **Not established** — Canvas availability unknown                                                                                                                                                        | Ask the institution's Canvas administrator whether they will issue a scoped developer key. If not, Phase 3 ships manual mode |
-| 3   | AI API credential, model ID, spend limits                               | **Not started**                                                                                                                                                                                          | Provision an Anthropic API key for the app (a Claude Code subscription is not one)                                           |
-| 4   | Node.js LTS, PostgreSQL, locked package versions                        | **Done**                                                                                                                                                                                                 | — (see [STACK.md](STACK.md))                                                                                                 |
-| 5   | Production URL, host, secret store, encrypted backups, worker model     | **Not started**                                                                                                                                                                                          | Decide in Phase 7; nothing is deployed without owner approval                                                                |
+| #   | Prerequisite (SCHOLAR_AI_PLAN.md §3)                                    | Status                                                                                                                                                                                                   | Owner action needed                                                                                                                  |
+| --- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Google Cloud project, Tasks API enabled, OAuth consent + redirects      | **In progress (owner)** — project `scholar-ai-dev` and its OAuth configuration created 2026-11-04 (seen in a screenshot); Tasks API enablement, test user, scopes and the OAuth client not yet confirmed | Finish §0 of [GOOGLE_SMOKE_TEST.md](GOOGLE_SMOKE_TEST.md), then run the smoke test                                                   |
+| 2   | Canvas developer key, institution base URL, scoped endpoints, redirects | **Host known, key not established** — `https://northallegheny.instructure.com`; no developer key                                                                                                         | Ask the district's Canvas administrator for a scoped developer key (see the Canvas scope section). If they decline, ship manual mode |
+| 3   | AI API credential, model ID, spend limits                               | **Not started**                                                                                                                                                                                          | Provision an Anthropic API key for the app (a Claude Code subscription is not one)                                                   |
+| 4   | Node.js LTS, PostgreSQL, locked package versions                        | **Done**                                                                                                                                                                                                 | — (see [STACK.md](STACK.md))                                                                                                         |
+| 5   | Production URL, host, secret store, encrypted backups, worker model     | **Not started**                                                                                                                                                                                          | Decide in Phase 7; nothing is deployed without owner approval                                                                        |
 
-**Canvas availability (recorded explicitly, per the M0 gate):** _not established_. The
-institution hostname is unknown (`yourschool.instructure.com` in the original conversation was
-an example). No Canvas code path exists yet; the UI states "Canvas connection unavailable".
-A student being able to log in to Canvas does not mean the institution permits third-party
-applications.
+**Canvas availability (recorded explicitly, per the M0 gate):** _not established_.
+
+- **Institution host (provided by the owner, 2026-11-05):** `https://northallegheny.instructure.com`
+  (an Instructure-hosted Canvas instance; set as `CANVAS_BASE_URL` — origin only, without
+  `?login_success=1`). The hostname suggests a K-12 district.
+- **Developer key:** not requested yet. Only the district's Canvas administrator can create
+  one; a student login does not grant it. K-12 districts commonly restrict third-party
+  access to student data under district privacy agreements, so a refusal is a realistic
+  outcome. If refused, the product runs in manual mode (already implemented).
+- No request is ever made to this host without an approved key; the code path is exercised
+  only against synthetic data and a fake Canvas server.
 
 ## Scope inventory
 
